@@ -52,7 +52,7 @@ const BOARD_TYPES = [
 
 const SPACE_INFO = {
   payday:     { label: 'PAYDAY',     color: '#2ecc71', icon: 'payday',  tip: 'Collect your salary, pay bills and pocket your passive income.' },
-  opportunity: { label: 'DEAL',      color: '#9b59b6', icon: 'deal',     tip: 'A money-making opportunity! Will you invest or pass?' },
+  opportunity: { label: 'DEAL',      color: '#9b59b6', icon: 'deal',     tip: 'Today\'s market is open! Buy or sell a home, factory, shares or savings — pick your best deal.' },
   market:     { label: 'MARKET',     color: '#f39c12', icon: 'market',  tip: 'Markets move up and down. How does this affect what you own?' },
   expense:    { label: 'SPEND',      color: '#e74c3c', icon: 'spend',   tip: 'A surprise cost. Needs vs wants — think before you spend.' },
   tax:        { label: 'TAX',        color: '#f1c40f', icon: 'tax',     tip: 'Governments take a share of what you earn. Plan for taxes.' },
@@ -86,6 +86,14 @@ const JOBS = [
 ];
 
 const PLAYER_COLORS = ['#e74c3c', '#3498db', '#f39c12', '#2ecc71', '#9b59b6', '#e84393'];
+
+// deal categories offered on DEAL spaces
+const DEAL_CATS = [
+  { cat: 'realestate', label: 'Home / Real Estate' },
+  { cat: 'business',   label: 'Business / Factory' },
+  { cat: 'stock',      label: 'Company Shares' },
+  { cat: 'savings',    label: 'Savings / Bonds' },
+];
 
 const OPPORTUNITY_CARDS = [
   { title: 'Lemonade Stand Upgrade', cat: 'business', cost: 300,   monthly: 45,   value: 300,   desc: 'Buy a bigger jug, better syrup and a prime corner.', lesson: 'Small assets pay you every month. Start small!' },
@@ -159,7 +167,7 @@ const HOW_TO_PLAY = [
   { h: 'Goal', t: 'Escape the Rat Race! Build monthly PASSIVE INCOME that is bigger than your monthly EXPENSES.' },
   { h: 'Roll & Move', t: 'On your turn, roll two dice and move around the board. Every space teaches a money skill.' },
   { h: 'Payday', t: 'Landing on PAYDAY (green) pays your salary, subtracts expenses, and adds your passive income.' },
-  { h: 'Deals', t: 'DEAL spaces (purple) let you invest in assets: businesses, real estate, savings and stocks. Assets pay you every month.' },
+  { h: 'Deals', t: 'DEAL spaces (purple) open today\'s market: buy or sell a home, factory, company shares or savings. Compare offers and pick the one with the shortest payback.' },
   { h: 'Markets', t: 'MARKET spaces (orange) change the value of what you own. Values rise and fall — that is normal.' },
   { h: 'Surprises', t: 'Expenses, taxes, babies and job losses happen to everyone. An emergency fund protects you.' },
   { h: 'Charity', t: 'Giving on the GIVING space earns you a bonus roll next turn. Generosity pays back.' },

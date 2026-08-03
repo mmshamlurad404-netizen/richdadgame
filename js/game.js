@@ -204,7 +204,12 @@ function beginGame(players) {
     turn: 1,
     winner: null,
     decks: {
-      opp: shuffle(OPPORTUNITY_CARDS),
+      oppByCat: {
+        realestate: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'realestate')),
+        business: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'business')),
+        stock: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'stock')),
+        savings: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'savings')),
+      },
       market: shuffle(MARKET_CARDS),
       expense: shuffle(EXPENSE_CARDS),
       bonus: shuffle(BONUS_CARDS),
@@ -417,31 +422,93 @@ function repayLoan(p, loan) {
   }
 }
 
+function drawCat(cat) {
+  const deck = game.decks.oppByCat[cat];
+  if (!deck.length) game.decks.oppByCat[cat] = shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === cat));
+  return game.decks.oppByCat[cat].shift();
+}
+
+function paybackMonths(card) {
+  return card.monthly > 0 ? Math.ceil(card.cost / card.monthly) : 0;
+}
+
+function sellAsset(p, a) {
+  p.cash += a.value;
+  p.passiveIncome -= a.monthly;
+  p.assets = p.assets.filter(x => x !== a);
+  sfx.coin();
+  log(`${p.name} sells ${a.name} for ${fmt(a.value)}.`);
+  renderAll();
+}
+
 async function onOpportunity(p) {
-  const deck = game.decks.opp;
-  const card = deck.length ? deck.shift() : (deck.push(...shuffle(OPPORTUNITY_CARDS)), deck.shift());
-  const payback = card.monthly > 0 ? Math.ceil(card.cost / card.monthly) : 0;
+  // draw today's market: one offer per category
+  const offers = DEAL_CATS.map(dc => ({ dc, card: drawCat(dc.cat) }));
+
+  const buyRows = offers.map((o, i) => {
+    const card = o.card;
+    const affordable = p.cash >= card.cost;
+    return `
+      <div class="deal-row">
+        <div class="deal-info">
+          <b>${card.title}</b>
+          <span class="deal-sub">${o.dc.label} · Cost ${fmt(card.cost)} · +${fmt(card.monthly)}/mo · Payback ${paybackMonths(card)} mo</span>
+        </div>
+        <button class="btn small ok" data-buy="${i}" ${affordable ? '' : 'disabled'}>Buy</button>
+      </div>`;
+  }).join('');
+
+  const owned = [];
+  DEAL_CATS.forEach(dc => p.assets.filter(a => a.cat === dc.cat).forEach(a => owned.push({ a, dc })));
+  const sellRows = owned.map(({ a, dc }) => `
+      <div class="deal-row">
+        <div class="deal-info">
+          <b>${a.name}</b>
+          <span class="deal-sub">Sell ${dc.label} · ${fmt(a.value)}</span>
+        </div>
+        <button class="btn small sell" data-sell="${a.name}">Sell</button>
+      </div>`).join('');
 
   const html = `
-    <div class="card-title">${card.title}</div>
-    <div class="card-desc">${card.desc}</div>
-    <div class="card-stats">
-      <div><span>Cost</span><b>${fmt(card.cost)}</b></div>
-      <div><span>+Passive/mo</span><b class="green">+${fmt(card.monthly)}</b></div>
-      <div><span>Payback</span><b>${payback} mo</b></div>
-    </div>
-    <div class="tip"><b>Lesson:</b> ${card.lesson}</div>`;
+    <p class="card-desc">Today's market has several offers. Pick the best deal to buy, or sell an asset you own.</p>
+    ${buyRows}
+    ${sellRows ? `<h3>Sell your assets</h3>${sellRows}` : ''}
+    <div class="tip"><b>Lesson:</b> ${LESSONS.payback} Compare the payback of every offer before you buy.</div>`;
 
   if (p.isHuman) {
-    const action = await ask('Deal of the Day', html,
-      [{ v: 'buy', label: 'Buy it', cls: 'ok', disabled: p.cash < card.cost },
-       { v: 'pass', label: 'Pass', cls: 'cancel' }]);
-    if (action === 'buy') buyAsset(p, card);
+    $('card-body').innerHTML = `<h2>Deal of the Day</h2>${html}`;
+    $('card-actions').innerHTML = `<button class="btn cancel" data-v="pass">Pass</button>`;
+    show('card-modal');
+    await new Promise((res) => {
+      resolver = res;
+      $('card-actions').querySelector('[data-v="pass"]').addEventListener('click', () => {
+        hide('card-modal'); res('pass');
+      });
+      $('card-body').querySelectorAll('[data-buy]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const o = offers[+btn.dataset.buy];
+          if (p.cash < o.card.cost) return;
+          buyAsset(p, o.card);
+          hide('card-modal'); res('buy');
+        });
+      });
+      $('card-body').querySelectorAll('[data-sell]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const a = p.assets.find(x => x.name === btn.dataset.sell);
+          if (!a) return;
+          sellAsset(p, a);
+          hide('card-modal'); res('sell');
+        });
+      });
+    });
   } else {
     const reserve = Math.max(200, Math.min(2500, Math.round(p.expenses * 0.3)));
-    const good = p.cash >= card.cost + reserve && payback <= 90;
-    if (good) { buyAsset(p, card); log(`${p.name} buys ${card.title} for ${fmt(card.cost)} (+${fmt(card.monthly)}/mo).`); }
-    else { log(`${p.name} passes on ${card.title}.`); }
+    const buyable = offers
+      .filter(o => o.card.monthly > 0 && p.cash >= o.card.cost + reserve && paybackMonths(o.card) <= 90)
+      .sort((x, y) => paybackMonths(x.card) - paybackMonths(y.card) || y.card.monthly - x.card.monthly);
+    const best = buyable[0];
+    if (best) { buyAsset(p, best.card); log(`${p.name} buys ${best.card.title} for ${fmt(best.card.cost)} (+${fmt(best.card.monthly)}/mo).`); }
+    else { log(`${p.name} passes on today's deals.`); }
   }
 }
 

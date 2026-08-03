@@ -204,7 +204,12 @@ function beginGame(players) {
     turn: 1,
     winner: null,
     decks: {
-      opp: shuffle(OPPORTUNITY_CARDS),
+      oppByCat: {
+        realestate: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'realestate')),
+        business: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'business')),
+        stock: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'stock')),
+        savings: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'savings')),
+      },
       market: shuffle(MARKET_CARDS),
       expense: shuffle(EXPENSE_CARDS),
       bonus: shuffle(BONUS_CARDS),
@@ -417,31 +422,93 @@ function repayLoan(p, loan) {
   }
 }
 
+function drawCat(cat) {
+  const deck = game.decks.oppByCat[cat];
+  if (!deck.length) game.decks.oppByCat[cat] = shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === cat));
+  return game.decks.oppByCat[cat].shift();
+}
+
+function paybackMonths(card) {
+  return card.monthly > 0 ? Math.ceil(card.cost / card.monthly) : 0;
+}
+
+function sellAsset(p, a) {
+  p.cash += a.value;
+  p.passiveIncome -= a.monthly;
+  p.assets = p.assets.filter(x => x !== a);
+  sfx.coin();
+  log(`${p.name} ${a.name} را به ${fmt(a.value)} می‌فروشد.`);
+  renderAll();
+}
+
 async function onOpportunity(p) {
-  const deck = game.decks.opp;
-  const card = deck.length ? deck.shift() : (deck.push(...shuffle(OPPORTUNITY_CARDS)), deck.shift());
-  const payback = card.monthly > 0 ? Math.ceil(card.cost / card.monthly) : 0;
+  // بازار امروز: از هر دسته یک پیشنهاد
+  const offers = DEAL_CATS.map(dc => ({ dc, card: drawCat(dc.cat) }));
+
+  const buyRows = offers.map((o, i) => {
+    const card = o.card;
+    const affordable = p.cash >= card.cost;
+    return `
+      <div class="deal-row">
+        <div class="deal-info">
+          <b>${card.title}</b>
+          <span class="deal-sub">${o.dc.label} · هزینه ${fmt(card.cost)} · +${fmt(card.monthly)}/ماه · بازگشت ${paybackMonths(card).toLocaleString('fa-IR')} ماه</span>
+        </div>
+        <button class="btn small ok" data-buy="${i}" ${affordable ? '' : 'disabled'}>خرید</button>
+      </div>`;
+  }).join('');
+
+  const owned = [];
+  DEAL_CATS.forEach(dc => p.assets.filter(a => a.cat === dc.cat).forEach(a => owned.push({ a, dc })));
+  const sellRows = owned.map(({ a, dc }) => `
+      <div class="deal-row">
+        <div class="deal-info">
+          <b>${a.name}</b>
+          <span class="deal-sub">فروش ${dc.label} · ${fmt(a.value)}</span>
+        </div>
+        <button class="btn small sell" data-sell="${a.name}">فروش</button>
+      </div>`).join('');
 
   const html = `
-    <div class="card-title">${card.title}</div>
-    <div class="card-desc">${card.desc}</div>
-    <div class="card-stats">
-      <div><span>هزینه</span><b>${fmt(card.cost)}</b></div>
-      <div><span>+درآمد غیرفعال/ماه</span><b class="green">+${fmt(card.monthly)}</b></div>
-      <div><span>بازگشت سرمایه</span><b>${payback.toLocaleString('fa-IR')} ماه</b></div>
-    </div>
-    <div class="tip"><b>درس:</b> ${card.lesson}</div>`;
+    <p class="card-desc">بازار امروز چند پیشنهاد دارد. بهترین معامله را برای خرید انتخاب کن یا دارایی‌ای را که داری بفروش.</p>
+    ${buyRows}
+    ${sellRows ? `<h3>فروش دارایی‌هایت</h3>${sellRows}` : ''}
+    <div class="tip"><b>درس:</b> ${LESSONS.payback} قبل از خرید، بازگشت سرمایهٔ همه پیشنهادها را مقایسه کن.</div>`;
 
   if (p.isHuman) {
-    const action = await ask('معامله روز', html,
-      [{ v: 'buy', label: 'بخرش', cls: 'ok', disabled: p.cash < card.cost },
-       { v: 'pass', label: 'نمی‌خرم', cls: 'cancel' }]);
-    if (action === 'buy') buyAsset(p, card);
+    $('card-body').innerHTML = `<h2>معامله روز</h2>${html}`;
+    $('card-actions').innerHTML = `<button class="btn cancel" data-v="pass">رد کردن</button>`;
+    show('card-modal');
+    await new Promise((res) => {
+      resolver = res;
+      $('card-actions').querySelector('[data-v="pass"]').addEventListener('click', () => {
+        hide('card-modal'); res('pass');
+      });
+      $('card-body').querySelectorAll('[data-buy]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const o = offers[+btn.dataset.buy];
+          if (p.cash < o.card.cost) return;
+          buyAsset(p, o.card);
+          hide('card-modal'); res('buy');
+        });
+      });
+      $('card-body').querySelectorAll('[data-sell]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const a = p.assets.find(x => x.name === btn.dataset.sell);
+          if (!a) return;
+          sellAsset(p, a);
+          hide('card-modal'); res('sell');
+        });
+      });
+    });
   } else {
     const reserve = Math.max(200, Math.min(2500, Math.round(p.expenses * 0.3)));
-    const good = p.cash >= card.cost + reserve && payback <= 90;
-    if (good) { buyAsset(p, card); log(`${p.name} ${card.title} را به ${fmt(card.cost)} می‌خرد (+${fmt(card.monthly)}/ماه).`); }
-    else { log(`${p.name} از ${card.title} می‌گذرد.`); }
+    const buyable = offers
+      .filter(o => o.card.monthly > 0 && p.cash >= o.card.cost + reserve && paybackMonths(o.card) <= 90)
+      .sort((x, y) => paybackMonths(x.card) - paybackMonths(y.card) || y.card.monthly - x.card.monthly);
+    const best = buyable[0];
+    if (best) { buyAsset(p, best.card); log(`${p.name} ${best.card.title} را به ${fmt(best.card.cost)} می‌خرد (+${fmt(best.card.monthly)}/ماه).`); }
+    else { log(`${p.name} از معامله‌های امروز می‌گذرد.`); }
   }
 }
 
