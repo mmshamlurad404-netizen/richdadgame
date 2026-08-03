@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Money Quest — Escape the Rat Race</title>
+<meta name="description" content="A family board game that teaches money management: build passive income, escape the rat race.">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" fill="#ffd166" stroke="#c77d14" stroke-width="1.5"/>
+      <path d="M12 6v12M9 9.5h6M9 14.5h6" stroke="#7a4d00" stroke-width="1.6" stroke-linecap="round"/>
+    </svg>
+    <div>
+      <h1>Money <span>Quest</span></h1>
+      <p>Escape the Rat Race · a money-skills board game</p>
+    </div>
+  </div>
+  <button class="btn header-btn" id="help-btn">How to Play</button>
+  <button class="btn header-btn" id="glossary-btn">Concepts</button>
+  <button class="btn header-btn" id="sound-btn">Sound: On</button>
+  <button class="btn header-btn" id="new-btn">New Game</button>
+</header>
+
+<main>
+  <!-- BOARD -->
+  <section class="board-wrap">
+    <div id="board">
+      <div id="center"></div>
+    </div>
+  </section>
+
+  <!-- SIDE PANEL -->
+  <aside id="panel">
+    <div class="pcard">
+      <h3>Players</h3>
+      <div id="turn-info"></div>
+    </div>
+    <div class="pcard">
+      <h3>Roll the Dice</h3>
+      <div class="dice-row">
+        <div id="dice" class="dice">
+          <div class="die" id="die1"></div>
+          <div class="die" id="die2"></div>
+        </div>
+        <button id="roll-btn" class="btn ok">Roll Dice</button>
+      </div>
+    </div>
+    <div class="pcard">
+      <button id="portfolio-btn" class="btn header-btn" style="width:100%">Portfolio (cash, assets, loans)</button>
+    </div>
+    <div class="pcard">
+      <h3>Game Log</h3>
+      <div id="log"></div>
+    </div>
+  </aside>
+</main>
+
+<!-- SETUP MODAL -->
+<div id="setup-modal" class="modal open">
+  <div class="modal-box">
+    <div class="setup-head">
+      <div class="logo-row">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" fill="#ffd166" stroke="#c77d14" stroke-width="1.5"/>
+          <path d="M12 6v12M9 9.5h6M9 14.5h6" stroke="#7a4d00" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+        <h2>Money Quest</h2>
+      </div>
+      <p>Escape the Rat Race! Roll the dice, land on spaces, and build <b>passive income greater than your expenses</b>. Every space teaches a money skill — fun for kids and adults.</p>
+    </div>
+
+    <h3 style="margin-bottom:8px">Choose your players <span class="hint">(1 to 4 — add AI rivals for a full table)</span></h3>
+    <div id="players-list"></div>
+
+    <div style="display:flex;gap:8px;align-items:center">
+      <button id="add-player" class="btn small header-btn">+ Add Player</button>
+      <button id="remove-player" class="btn small header-btn">- Remove</button>
+      <span class="difficulty-tag" style="margin-left:auto">Easy job to start, harder jobs pay more.</span>
+    </div>
+
+    <div class="setup-actions">
+      <button id="setup-start" class="btn ok">Start Game</button>
+    </div>
+  </div>
+</div>
+
+<!-- CARD / INFO MODAL -->
+<div id="card-modal" class="modal">
+  <div class="modal-box">
+    <div id="card-body"></div>
+    <div id="card-actions"></div>
+  </div>
+</div>
+
+<!-- CONFETTI -->
+<div id="confetti"></div>
+
+<script src="js/data.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>
