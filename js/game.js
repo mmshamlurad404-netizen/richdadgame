@@ -178,6 +178,7 @@ function beginGame(players) {
       name: cfg.name,
       color: cfg.color,
       ai: cfg.ai,
+      isHuman: !cfg.ai,
       job: job,
       cash: job.cash,
       salary: job.salary,
