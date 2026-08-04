@@ -446,10 +446,12 @@ async function onOpportunity(p) {
   // draw today's market: one offer per category
   const offers = DEAL_CATS.map(dc => ({ dc, card: drawCat(dc.cat) }));
 
-  const buyRows = offers.map((o, i) => {
-    const card = o.card;
-    const affordable = p.cash >= card.cost;
-    return `
+  if (p.isHuman) {
+    const renderMarket = () => {
+      const buyRows = offers.map((o, i) => {
+        const card = o.card;
+        const affordable = p.cash >= card.cost;
+        return `
       <div class="deal-row">
         <div class="deal-info">
           <b>${card.title}</b>
@@ -457,11 +459,10 @@ async function onOpportunity(p) {
         </div>
         <button class="btn small ok" data-buy="${i}" ${affordable ? '' : 'disabled'}>Buy</button>
       </div>`;
-  }).join('');
-
-  const owned = [];
-  DEAL_CATS.forEach(dc => p.assets.filter(a => a.cat === dc.cat).forEach(a => owned.push({ a, dc })));
-  const sellRows = owned.map(({ a, dc }) => `
+      }).join('');
+      const owned = [];
+      DEAL_CATS.forEach(dc => p.assets.filter(a => a.cat === dc.cat).forEach(a => owned.push({ a, dc })));
+      const sellRows = owned.map(({ a, dc }) => `
       <div class="deal-row">
         <div class="deal-info">
           <b>${a.name}</b>
@@ -469,28 +470,21 @@ async function onOpportunity(p) {
         </div>
         <button class="btn small sell" data-sell="${a.name}">Sell</button>
       </div>`).join('');
-
-  const html = `
-    <p class="card-desc">Today's market has several offers. Pick the best deal to buy, or sell an asset you own.</p>
-    ${buyRows}
-    ${sellRows ? `<h3>Sell your assets</h3>${sellRows}` : ''}
-    <div class="tip"><b>Lesson:</b> ${LESSONS.payback} Compare the payback of every offer before you buy.</div>`;
-
-  if (p.isHuman) {
-    $('card-body').innerHTML = `<h2>Deal of the Day</h2>${html}`;
-    $('card-actions').innerHTML = `<button class="btn cancel" data-v="pass">Pass</button>`;
-    show('card-modal');
-    await new Promise((res) => {
-      resolver = res;
-      $('card-actions').querySelector('[data-v="pass"]').addEventListener('click', () => {
-        hide('card-modal'); res('pass');
-      });
+      $('card-body').innerHTML = `
+        <h2>Deal of the Day</h2>
+        <div class="deal-cash">Your cash: <b>${fmt(p.cash)}</b></div>
+        <p class="card-desc">Buy any offer you can afford — you may make several deals. Pass when you're done.</p>
+        ${buyRows}
+        ${sellRows ? `<h3>Sell your assets</h3>${sellRows}` : ''}
+        <div class="tip"><b>Lesson:</b> ${LESSONS.payback} Compare the payback of every offer before you buy.</div>`;
       $('card-body').querySelectorAll('[data-buy]').forEach(btn => {
         btn.addEventListener('click', () => {
-          const o = offers[+btn.dataset.buy];
+          const i = +btn.dataset.buy;
+          const o = offers[i];
           if (p.cash < o.card.cost) return;
           buyAsset(p, o.card);
-          hide('card-modal'); res('buy');
+          offers.splice(i, 1);
+          renderMarket();
         });
       });
       $('card-body').querySelectorAll('[data-sell]').forEach(btn => {
@@ -498,10 +492,17 @@ async function onOpportunity(p) {
           const a = p.assets.find(x => x.name === btn.dataset.sell);
           if (!a) return;
           sellAsset(p, a);
-          hide('card-modal'); res('sell');
+          renderMarket();
         });
       });
+    };
+    renderMarket();
+    $('card-actions').innerHTML = `<button class="btn cancel" data-v="pass">Pass</button>`;
+    show('card-modal');
+    $('card-actions').querySelector('[data-v="pass"]').addEventListener('click', () => {
+      hide('card-modal'); if (resolver) resolver('pass');
     });
+    await new Promise((res) => { resolver = res; });
   } else {
     const reserve = Math.max(200, Math.min(2500, Math.round(p.expenses * 0.3)));
     const buyable = offers
@@ -808,11 +809,16 @@ function openPortfolio() {
       </div>`).join('')
     : '<div class="empty">No loans. Good — debt costs money every month.</div>';
 
+  const cashflow = p.salary - p.expenses + p.passiveIncome;
+
   $('card-body').innerHTML = `
     <h2>${p.name}'s Portfolio</h2>
     <div class="pstats">
-      <div><span>Cash</span><b>${fmt(p.cash)}</b></div>
+      <div><span>Active (salary)</span><b class="green">+${fmt(p.salary)}</b></div>
       <div><span>Passive/mo</span><b class="green">+${fmt(p.passiveIncome)}</b></div>
+      <div><span>Expenses</span><b class="red">-${fmt(p.expenses)}</b></div>
+      <div class="cf-row"><span>Monthly cash flow</span><b class="${cashflow >= 0 ? 'green' : 'red'}">${cashflow >= 0 ? '+' : ''}${fmt(cashflow)}</b></div>
+      <div><span>Cash</span><b>${fmt(p.cash)}</b></div>
       <div><span>Net worth</span><b>${fmt(netWorth(p))}</b></div>
       <div><span>Loans</span><b>${fmt(p.loans.reduce((s, l) => s + l.principal, 0))}</b></div>
     </div>

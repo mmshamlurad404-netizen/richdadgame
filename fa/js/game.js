@@ -446,10 +446,12 @@ async function onOpportunity(p) {
   // بازار امروز: از هر دسته یک پیشنهاد
   const offers = DEAL_CATS.map(dc => ({ dc, card: drawCat(dc.cat) }));
 
-  const buyRows = offers.map((o, i) => {
-    const card = o.card;
-    const affordable = p.cash >= card.cost;
-    return `
+  if (p.isHuman) {
+    const renderMarket = () => {
+      const buyRows = offers.map((o, i) => {
+        const card = o.card;
+        const affordable = p.cash >= card.cost;
+        return `
       <div class="deal-row">
         <div class="deal-info">
           <b>${card.title}</b>
@@ -457,11 +459,10 @@ async function onOpportunity(p) {
         </div>
         <button class="btn small ok" data-buy="${i}" ${affordable ? '' : 'disabled'}>خرید</button>
       </div>`;
-  }).join('');
-
-  const owned = [];
-  DEAL_CATS.forEach(dc => p.assets.filter(a => a.cat === dc.cat).forEach(a => owned.push({ a, dc })));
-  const sellRows = owned.map(({ a, dc }) => `
+      }).join('');
+      const owned = [];
+      DEAL_CATS.forEach(dc => p.assets.filter(a => a.cat === dc.cat).forEach(a => owned.push({ a, dc })));
+      const sellRows = owned.map(({ a, dc }) => `
       <div class="deal-row">
         <div class="deal-info">
           <b>${a.name}</b>
@@ -469,28 +470,21 @@ async function onOpportunity(p) {
         </div>
         <button class="btn small sell" data-sell="${a.name}">فروش</button>
       </div>`).join('');
-
-  const html = `
-    <p class="card-desc">بازار امروز چند پیشنهاد دارد. بهترین معامله را برای خرید انتخاب کن یا دارایی‌ای را که داری بفروش.</p>
-    ${buyRows}
-    ${sellRows ? `<h3>فروش دارایی‌هایت</h3>${sellRows}` : ''}
-    <div class="tip"><b>درس:</b> ${LESSONS.payback} قبل از خرید، بازگشت سرمایهٔ همه پیشنهادها را مقایسه کن.</div>`;
-
-  if (p.isHuman) {
-    $('card-body').innerHTML = `<h2>معامله روز</h2>${html}`;
-    $('card-actions').innerHTML = `<button class="btn cancel" data-v="pass">رد کردن</button>`;
-    show('card-modal');
-    await new Promise((res) => {
-      resolver = res;
-      $('card-actions').querySelector('[data-v="pass"]').addEventListener('click', () => {
-        hide('card-modal'); res('pass');
-      });
+      $('card-body').innerHTML = `
+        <h2>معامله روز</h2>
+        <div class="deal-cash">پول نقد تو: <b>${fmt(p.cash)}</b></div>
+        <p class="card-desc">هر پیشنهادی را که توان خریدش را داری بخر — می‌توانی چند معامله انجام دهی. وقتی تمام شد «رد کردن» را بزن.</p>
+        ${buyRows}
+        ${sellRows ? `<h3>فروش دارایی‌هایت</h3>${sellRows}` : ''}
+        <div class="tip"><b>درس:</b> ${LESSONS.payback} قبل از خرید، بازگشت سرمایهٔ همه پیشنهادها را مقایسه کن.</div>`;
       $('card-body').querySelectorAll('[data-buy]').forEach(btn => {
         btn.addEventListener('click', () => {
-          const o = offers[+btn.dataset.buy];
+          const i = +btn.dataset.buy;
+          const o = offers[i];
           if (p.cash < o.card.cost) return;
           buyAsset(p, o.card);
-          hide('card-modal'); res('buy');
+          offers.splice(i, 1);
+          renderMarket();
         });
       });
       $('card-body').querySelectorAll('[data-sell]').forEach(btn => {
@@ -498,10 +492,17 @@ async function onOpportunity(p) {
           const a = p.assets.find(x => x.name === btn.dataset.sell);
           if (!a) return;
           sellAsset(p, a);
-          hide('card-modal'); res('sell');
+          renderMarket();
         });
       });
+    };
+    renderMarket();
+    $('card-actions').innerHTML = `<button class="btn cancel" data-v="pass">رد کردن</button>`;
+    show('card-modal');
+    $('card-actions').querySelector('[data-v="pass"]').addEventListener('click', () => {
+      hide('card-modal'); if (resolver) resolver('pass');
     });
+    await new Promise((res) => { resolver = res; });
   } else {
     const reserve = Math.max(200, Math.min(2500, Math.round(p.expenses * 0.3)));
     const buyable = offers
@@ -808,11 +809,16 @@ function openPortfolio() {
       </div>`).join('')
     : '<div class="empty">وام نداری. عالی — بدهی هر ماه پول می‌گیرد.</div>';
 
+  const cashflow = p.salary - p.expenses + p.passiveIncome;
+
   $('card-body').innerHTML = `
     <h2>کیف دارایی‌های ${p.name}</h2>
     <div class="pstats">
-      <div><span>نقدینگی</span><b>${fmt(p.cash)}</b></div>
+      <div><span>درآمد فعال (حقوق)</span><b class="green">+${fmt(p.salary)}</b></div>
       <div><span>درآمد غیرفعال/ماه</span><b class="green">+${fmt(p.passiveIncome)}</b></div>
+      <div><span>هزینه‌ها</span><b class="red">-${fmt(p.expenses)}</b></div>
+      <div class="cf-row"><span>جریان نقدی ماهانه</span><b class="${cashflow >= 0 ? 'green' : 'red'}">${cashflow >= 0 ? '+' : ''}${fmt(cashflow)}</b></div>
+      <div><span>نقدینگی</span><b>${fmt(p.cash)}</b></div>
       <div><span>ارزش خالص</span><b>${fmt(netWorth(p))}</b></div>
       <div><span>وام‌ها</span><b>${fmt(p.loans.reduce((s, l) => s + l.principal, 0))}</b></div>
     </div>
