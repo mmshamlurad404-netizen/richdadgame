@@ -774,8 +774,10 @@ function hide(id) { $(id).classList.remove('open'); }
 function showInfo(title, html, buttons, noClose) {
   const box = $('card-body');
   box.innerHTML = `<h2>${title}</h2>${html}`;
-  $('card-actions').innerHTML = buttons.map((b, i) =>
-    `<button class="btn ${b.cls || ''}" data-v="${b.v || i}">${b.label}</button>`).join('');
+  $('card-actions').innerHTML = buttons.map((b, i) => {
+    const isStr = typeof b === 'string';
+    return `<button class="btn ${isStr ? '' : (b.cls || '')}" data-v="${isStr ? i : (b.v || i)}">${isStr ? b : b.label}</button>`;
+  }).join('');
   show('card-modal');
   $('card-modal').querySelectorAll('button').forEach(b =>
     b.addEventListener('click', () => { hide('card-modal'); if (resolver) resolver(b.dataset.v); }));
