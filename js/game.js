@@ -160,7 +160,7 @@ function startGame() {
     seen.add(name);
     const job = JOBS.find(j => j.id === row.querySelector('.prow-job').value);
     const color = row.querySelector('.swatch.active').dataset.color;
-    const isAI = row.querySelector('.prow-ai').checked;
+    const isAI = row.querySelector('.prow-ai input').checked;
     players.push({
       name, color, jobId: job.id, ai: isAI,
       isHuman: !isAI,
