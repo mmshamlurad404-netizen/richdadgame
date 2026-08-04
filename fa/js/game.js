@@ -185,6 +185,7 @@ function beginGame(players) {
       passiveIncome: 0,
       expenses: job.expenses,
       baseExpenses: job.expenses,
+      expenseItems: [{ name: 'هزینه‌های زندگی', monthly: job.expenses }],
       assets: [],
       loans: [],
       position: 0,
@@ -385,7 +386,14 @@ async function handleDebt(p) {
       if (p.isHuman) log(`${p.name} مجبور شد ${a.name} را به ${fmt(a.value)} بفروشد تا قبض‌ها را بپردازد.`);
       else log(`${p.name} برای پرداخت قبض‌ها ${a.name} را می‌فروشد.`);
     } else {
-      p.expenses = Math.max(Math.round(p.baseExpenses * 0.5), Math.round(p.expenses * 0.9));
+      const loanInterest = p.loans.reduce((s, l) => s + l.monthly, 0);
+      const target = Math.max(Math.round(p.baseExpenses * 0.5), Math.round(p.expenses * 0.9));
+      const nonLoan = p.expenses - loanInterest;
+      if (nonLoan > 0) {
+        const factor = Math.max(0, target - loanInterest) / nonLoan;
+        p.expenseItems = p.expenseItems.map(it => ({ name: it.name, monthly: Math.max(0, Math.round(it.monthly * factor)) }));
+      }
+      recalcExpenses(p);
       p.cash += 200;
       p.bankruptcies++;
       if (p.isHuman) log(`${p.name} مجبور شد ۱۰٪ از خرج زندگی را کم کند و از خانواده کمک بگیرد.`);
@@ -394,12 +402,20 @@ async function handleDebt(p) {
   }
 }
 
-function addMonthlyExpense(p, amt) {
+function recalcExpenses(p) {
+  const loanInterest = p.loans.reduce((s, l) => s + l.monthly, 0);
+  p.expenses = p.expenseItems.reduce((s, it) => s + it.monthly, 0) + loanInterest;
+}
+
+function addMonthlyExpense(p, amt, name) {
   const cap = Math.round(p.baseExpenses * 0.25);
   const extra = p.expenses - p.baseExpenses;
   if (extra >= cap) return 0;
   const add = Math.round(Math.min(amt, cap - extra));
-  p.expenses += add;
+  if (add > 0) {
+    p.expenseItems.push({ name, monthly: add });
+    recalcExpenses(p);
+  }
   return add;
 }
 
@@ -412,14 +428,14 @@ function scaleIncome(p, n) {
 function takeLoan(p) {
   p.cash += 1000;
   p.loans.push({ principal: 1000, monthly: 80 });
-  p.expenses += 80;
+  recalcExpenses(p);
 }
 
 function repayLoan(p, loan) {
   if (p.cash >= loan.principal) {
     p.cash -= loan.principal;
     p.loans = p.loans.filter(l => l !== loan);
-    p.expenses -= loan.monthly;
+    recalcExpenses(p);
   }
 }
 
@@ -623,7 +639,7 @@ async function onBaby(p) {
   const hospital = scaleIncome(p, card.cash);
   p.cash -= hospital;
   if (p.cash < 0) await handleDebt(p);
-  const added = addMonthlyExpense(p, card.monthly);
+  const added = addMonthlyExpense(p, card.monthly, card.title);
   sfx.bad();
   const html = `
     <div class="card-title">${card.title}</div>
@@ -810,6 +826,17 @@ function openPortfolio() {
     : '<div class="empty">وام نداری. عالی — بدهی هر ماه پول می‌گیرد.</div>';
 
   const cashflow = p.salary - p.expenses + p.passiveIncome;
+  const loanInterest = p.loans.reduce((s, l) => s + l.monthly, 0);
+  const expensesHtml = p.expenseItems.map((it, i) => `
+      <div class="prow2">
+        <div class="p2name"><b>${it.name}</b><span>هزینهٔ ماهانه</span></div>
+        <div class="p2val red">-${fmt(it.monthly)}</div>
+      </div>`).join('') +
+    (loanInterest > 0 ? `
+      <div class="prow2">
+        <div class="p2name"><b>سود وام بانکی</b><span>${p.loans.length.toLocaleString('fa-IR')} وام</span></div>
+        <div class="p2val red">-${fmt(loanInterest)}</div>
+      </div>` : '');
 
   $('card-body').innerHTML = `
     <h2>کیف دارایی‌های ${p.name}</h2>
@@ -822,6 +849,8 @@ function openPortfolio() {
       <div><span>ارزش خالص</span><b>${fmt(netWorth(p))}</b></div>
       <div><span>وام‌ها</span><b>${fmt(p.loans.reduce((s, l) => s + l.principal, 0))}</b></div>
     </div>
+    <h3>هزینه‌ها <span class="hint">هر ماه چه مبلغی خارج می‌شود</span></h3>
+    ${expensesHtml}
     <h3>دارایی‌ها <span class="hint">به قیمت روز بازار فروخته می‌شوند</span></h3>
     ${assetsHtml}
     <h3>وام‌ها</h3>
