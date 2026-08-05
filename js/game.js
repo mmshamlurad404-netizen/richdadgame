@@ -933,6 +933,23 @@ function openGlossary() {
   $('card-body').querySelector('[data-hclose]').addEventListener('click', () => hide('card-modal'));
 }
 
+function openLessons() {
+  $('card-body').innerHTML =
+    `<h2>Money Lessons</h2>` +
+    `<p class="card-desc">Timeless lessons inspired by <i>Rich Dad Poor Dad</i>. Read them one at a time — each has a real example and how it shows up in this game.</p>` +
+    MONEY_LESSONS.map((l, i) => `
+      <div class="lesson-card">
+        <div class="lesson-head"><span class="lesson-num">${i + 1}</span><b>${l.title}</b></div>
+        <div class="lesson-quote">${l.quote}</div>
+        <div class="lesson-block"><span class="lesson-label">What it means</span><p>${l.meaning}</p></div>
+        <div class="lesson-block"><span class="lesson-label">Real-world example</span><p>${l.example}</p></div>
+        <div class="lesson-block lesson-game"><span class="lesson-label">In Money Quest</span><p>${l.game}</p></div>
+      </div>`).join('') +
+    `<div class="card-actions2"><button class="btn ok" data-hclose="1">Got it</button></div>`;
+  show('card-modal');
+  $('card-body').querySelector('[data-hclose]').addEventListener('click', () => hide('card-modal'));
+}
+
 /* ---------------- bootstrap ---------------- */
 function init() {
   buildBoard();
@@ -944,6 +961,7 @@ function init() {
   $('portfolio-btn').addEventListener('click', openPortfolio);
   $('new-btn').addEventListener('click', () => location.reload());
   $('help-btn').addEventListener('click', openHelp);
+  $('lessons-btn').addEventListener('click', openLessons);
   $('glossary-btn').addEventListener('click', openGlossary);
   $('sound-btn').addEventListener('click', () => {
     soundOn = !soundOn;

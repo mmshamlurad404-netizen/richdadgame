@@ -163,6 +163,79 @@ const LESSONS = {
   needs: 'Needs are things you must have. Wants are nice to have. Spend on needs first.',
 };
 
+const MONEY_LESSONS = [
+  {
+    title: 'Assets vs. Liabilities',
+    quote: '"An asset puts money in your pocket. A liability takes money out of your pocket." — Robert Kiyosaki',
+    meaning: 'Rich people buy assets. Poor and middle-class people buy liabilities and call them assets. A house you rent out pays you rent, so it is an asset. A house you live in costs you mortgage, insurance and repairs every month — that is a liability. The middle class focuses on income; the rich focus on assets.',
+    example: 'A $100,000 rental property that earns $800/month in rent and costs $300/month in tax and upkeep puts $500/month INTO your pocket. A $40,000 car loan takes $500/month OUT of your pocket. Both feel like "things you own", but one makes you richer and the other makes you poorer.',
+    game: 'In Money Quest every asset you buy shows a green +X/mo. Every expense and loan shows a red -X/mo. Your job is simple: buy more green than red.',
+  },
+  {
+    title: 'The Rat Race',
+    quote: '"The rat race is: more money, more problems, bigger debts, bigger payments, working harder."',
+    meaning: 'Most people spend their whole lives working for money: earn a salary, pay bills, buy things, and repeat. A raise only lets them buy more things and take on bigger bills, so they never get ahead. You escape only when your money earns more than you spend — when your assets out-earn your expenses.',
+    example: 'Someone earning $5,000/month with $4,900/month in bills has just $100 left. They are one surprise away from debt. Someone earning $3,000/month with only $1,000 in bills and $2,200 in passive income has $4,200 left. The second person is free; the first is still in the race.',
+    game: 'Each PAYDAY subtracts your expenses from your salary and adds your passive income. Escape the Rat Race the same way as the book: make your passive income greater than your expenses.',
+  },
+  {
+    title: 'The Cash Flow Quadrant',
+    quote: 'E — Employee. S — Self-employed. B — Business owner. I — Investor.',
+    meaning: 'There are four ways to earn income. Employees (E) trade time for money. Self-employed people (S) own a job — they stop working, the income stops. Business owners (B) own a system that works without them. Investors (I) make money from money. Rich dad says move from the left side (E, S) to the right side (B, I) where your income is not tied to your hours.',
+    example: 'A doctor (E) is paid only when they see patients. A shop owner (S) must be at the shop. A franchise owner (B) has managers running it while they travel. An investor (I) owns stocks and rentals that pay without them lifting a finger.',
+    game: 'Your job card puts you on the left side of the quadrant — it pays salary only on PAYDAY. DEAL spaces let you cross to the right: buy businesses (B) and investments (I) that pay every month, even on spaces that are not payday.',
+  },
+  {
+    title: 'Make Money Work for You',
+    quote: '"The rich make money work for them. The poor and middle class work for money."',
+    meaning: 'Working for money means trading hours for dollars — there are only 24 hours in a day. Money working for you means your savings and investments earn on their own: interest, rent, dividends and business profits. The goal is to build a money machine that produces income while you sleep.',
+    example: '$60,000 saved at 5% interest earns $250/month — the equivalent of a part-time job that never calls in sick. Reinvest that interest and the machine grows by itself. That is the power of compounding.',
+    game: 'Your passive income is your money machine. It adds to your cash every PAYDAY without you rolling the dice. Watch the +X/mo number grow faster than your -X/mo number.',
+  },
+  {
+    title: 'Pay Yourself First',
+    quote: '"Pay yourself first. The rich build their asset column first, then buy their toys."',
+    meaning: 'Most people pay everyone else first — rent, bills, shops — and save whatever is left (which is usually nothing). The rich do the opposite: they take a slice of every paycheck for their asset column FIRST, then live on the rest. The rule: make savings and investing a fixed habit, not an afterthought.',
+    example: 'Earn $2,000? Put $400 into your asset column (a fixed 20%) before paying anything else. Over 10 years with reinvested returns, that habit can grow into six figures while spending barely changes.',
+    game: 'When you land a big deal, keep a cash reserve instead of spending everything. The game\'s best players pay themselves first by reinvesting early income instead of buying expensive liabilities.',
+  },
+  {
+    title: 'Good Debt vs. Bad Debt',
+    quote: '"Good debt makes you rich. Bad debt makes you poor."',
+    meaning: 'Debt is a tool, not a sin. Good debt is money you borrow to buy an asset that pays more than the loan costs — the asset covers the payment and puts extra in your pocket. Bad debt is money you borrow for things that lose value and keep costing you, like a new phone or an expensive car.',
+    example: 'Borrow $1,000 at $80/month to invest in a business that returns $150/month. Net: +$70/month and the loan eventually pays itself. Borrow $1,000 at $80/month to buy a big TV. Net: -$80/month forever and a TV worth a fraction of its price.',
+    game: 'A bank loan gives you $1,000 now but adds -$80/month. Take it only to buy a deal that earns more than $80/month. Count the payback months before you borrow.',
+  },
+  {
+    title: 'Mind Your Own Business',
+    quote: '"Keep your daytime job, but start buying real assets — mind your own business."',
+    meaning: 'You do not have to quit your job to become rich. While you keep earning your salary, use the extra cash to steadily build a second income from assets. Your "real business" is your asset column — the collection of things that earn money without you. It grows quietly in the background while your job pays the bills.',
+    example: 'A teacher earns $3,000/month and buys one small rental a year with the surplus. After five years they own five rentals paying $1,500/month combined — a part-time business built while working full time.',
+    game: 'Landing on a DEAL does not stop your job. Buy assets with your cash and keep your salary coming on PAYDAY. That is exactly how you build a second income in the game.',
+  },
+  {
+    title: 'Work to Learn, Don\'t Work for Money',
+    quote: '"The most important skills you can ever learn are sales and marketing." — rich dad',
+    meaning: 'Your first jobs should teach you skills, not just pay bills. Sales teaches you persuasion, marketing teaches you communication, accounting teaches you to read the financial game. These skills make you valuable in any career and are the same skills you need to build businesses and judge investments.',
+    example: 'Two friends take the same-paying job. One picks a role that trains them in sales and finance; the other picks the easiest desk. Five years later the first runs their own business; the second is still trading hours for a paycheck.',
+    game: 'Every job card is a different starting point. A harder job gives you more practice and more starting cash, but the skills you learn — comparing payback, watching cash flow — are what let you escape the Rat Race faster.',
+  },
+  {
+    title: 'Financial Education & Mistakes',
+    quote: '"Winners are not afraid of losing. Losers are. Failure inspires winners; it defeats losers."',
+    meaning: 'The greatest asset is financial education — understanding how money works. And education happens through mistakes. Everyone makes bad deals; the question is whether you learn from them. Analyze each loss, understand the numbers, and make the next decision better.',
+    example: 'Buying a business that went bust taught one investor to check cash flow, not just promises. That one painful lesson saved them from three bigger losses later. In school you learn to avoid mistakes; in money you learn TO make small mistakes early.',
+    game: 'Every expense, tax or job-loss space looks like a punishment, but each one teaches a financial lesson. Read the tip on every card. Players who learn the pattern — keep a reserve, avoid bad debt — survive surprises and win.',
+  },
+  {
+    title: 'Generosity & Giving',
+    quote: '"The more you give, the more you receive." — rich dad',
+    meaning: 'Rich dad taught that money follows abundance, not scarcity. Giving first trains you to see and create value for others, builds trust and relationships, and keeps money flowing through your life. Generosity is also a discipline: it proves money is a tool you control, not a master that controls you.',
+    example: 'A business owner who donates 10% of profits and mentors young people finds that customers and partners trust them more. That trust turns into referrals, deals and growth — the giving pays back in unexpected ways.',
+    game: 'The GIVING space asks for 10% of your cash, and generosity literally pays back: you earn a bonus roll next turn. Both good karma and good strategy.',
+  },
+];
+
 const HOW_TO_PLAY = [
   { h: 'Goal', t: 'Escape the Rat Race! Build monthly PASSIVE INCOME that is bigger than your monthly EXPENSES.' },
   { h: 'Roll & Move', t: 'On your turn, roll two dice and move around the board. Every space teaches a money skill.' },
