@@ -123,7 +123,7 @@ const MARKET_CARDS = [
   { title: 'Recession', desc: 'Your real estate loses 30% of its value.', apply: (p) => p.assets.forEach(a => { if (a.cat === 'realestate') a.value = Math.round(a.value * 0.7); }) },
   { title: 'Interest Rates Fall', desc: 'Your savings (bonds/CDs) gain 20% in value.', apply: (p) => p.assets.forEach(a => { if (a.cat === 'savings') a.value = Math.round(a.value * 1.2); }) },
   { title: 'Business Buyout', desc: 'A big company wants your business for 2x value. You may sell it.', apply: (p) => p._buyoutOffer = true },
-  { title: 'Inflation', desc: 'Prices rise! Your monthly expenses increase by $25.', apply: (p) => { addMonthlyExpense(p, 25); } },
+  { title: 'Inflation', desc: 'Prices rise! Your monthly expenses increase by $25.', apply: (p) => { addMonthlyExpense(p, 25, 'Inflation'); } },
 ];
 
 const EXPENSE_CARDS = [

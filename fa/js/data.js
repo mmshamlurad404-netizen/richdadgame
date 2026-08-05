@@ -123,7 +123,7 @@ const MARKET_CARDS = [
   { title: 'رکود', desc: 'املاک تو ۳۰٪ از ارزششان را از دست می‌دهند.', apply: (p) => p.assets.forEach(a => { if (a.cat === 'realestate') a.value = Math.round(a.value * 0.7); }) },
   { title: 'کاهش نرخ بهره', desc: 'پس‌اندازهایت (اوراق/گواهی) ۲۰٪ رشد می‌کنند.', apply: (p) => p.assets.forEach(a => { if (a.cat === 'savings') a.value = Math.round(a.value * 1.2); }) },
   { title: 'خرید کسب‌وکار', desc: 'یک شرکت بزرگ کسب‌وکارت را با ۲ برابر ارزش می‌خواهد. می‌توانی بفروشی.', apply: (p) => p._buyoutOffer = true },
-  { title: 'تورم', desc: 'قیمت‌ها بالا می‌روند! هزینه‌های ماهانه‌ات ۲۵ دلار افزایش می‌یابد.', apply: (p) => { addMonthlyExpense(p, 25); } },
+  { title: 'تورم', desc: 'قیمت‌ها بالا می‌روند! هزینه‌های ماهانه‌ات ۲۵ دلار افزایش می‌یابد.', apply: (p) => { addMonthlyExpense(p, 25, 'تورم'); } },
 ];
 
 const EXPENSE_CARDS = [

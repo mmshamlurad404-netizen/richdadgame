@@ -1,0 +1,12 @@
+{
+  "name": "money-quest-tests",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Regression tests for Money Quest (jsdom, no build step)",
+  "scripts": {
+    "test": "node test/run.js"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0"
+  }
+}

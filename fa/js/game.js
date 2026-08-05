@@ -38,6 +38,7 @@ let busy = false;
 /* ---------------- صدا (بوق‌های کوچک WebAudio) ---------------- */
 let audioCtx = null;
 let soundOn = true;
+try { soundOn = localStorage.getItem('mq_sound') !== '0'; } catch (e) { /* بدون حافظه */ }
 function beep(freq, dur, vol, when) {
   if (!soundOn || !window.AudioContext) return;
   try {
@@ -72,6 +73,7 @@ function buildBoard() {
     const cell = document.createElement('div');
     cell.className = 'cell type-' + type + (i === 0 ? ' cell-start' : '');
     cell.dataset.index = i;
+    cell.title = info.tip;
     cell.style.left = (pos.c * 100 / 9) + '%';
     cell.style.top = (pos.r * 100 / 9) + '%';
     cell.style.width = (100 / 9) + '%';
@@ -221,9 +223,21 @@ function beginGame(players) {
   };
 
   // ساخت مهره‌ها
+  buildTokens(p);
+
+  hide('setup-modal');
+  clearSave();
+  $('roll-btn').disabled = false;
+  renderAll();
+  log(`بازی جدید! ${p.map(x => x.name).join('، ')} در دایره فقر هستند.`);
+  log(`نوبت ${game.turn}: حرکت ${currentPlayer().name} (${currentPlayer().job.name}).`);
+  currentPlayer().isHuman ? promptStart() : takeTurn();
+}
+
+function buildTokens(players) {
   const tlayer = $('tokens');
   tlayer.innerHTML = '';
-  p.forEach((pl) => {
+  players.forEach((pl) => {
     const t = document.createElement('div');
     t.className = 'token';
     t.id = 'token-' + pl.color.replace('#', '');
@@ -232,13 +246,107 @@ function beginGame(players) {
     tlayer.appendChild(t);
     placeToken(pl);
   });
+}
 
+/* ---------------- ذخیره / ادامه ---------------- */
+const SAVE_KEY = 'mq_save_' + ((typeof document !== 'undefined' && document.documentElement && document.documentElement.lang) || 'en');
+
+function saveGame() {
+  try {
+    const decks = game.decks;
+    const s = {
+      v: 1,
+      players: game.players.map(p => ({
+        name: p.name, color: p.color, ai: p.ai, isHuman: p.isHuman, jobId: p.job.id,
+        cash: p.cash, salary: p.salary, passiveIncome: p.passiveIncome,
+        expenses: p.expenses, baseExpenses: p.baseExpenses,
+        expenseItems: p.expenseItems, assets: p.assets, loans: p.loans,
+        position: p.position, downsized: p.downsized, doubleRoll: p.doubleRoll,
+        escaped: p.escaped, totalPassiveEarned: p.totalPassiveEarned,
+        totalTaxPaid: p.totalTaxPaid, totalCharity: p.totalCharity,
+        investmentsBought: p.investmentsBought, bankruptcies: p.bankruptcies,
+      })),
+      current: game.current,
+      turn: game.turn,
+      decks: {
+        oppByCat: Object.fromEntries(Object.entries(decks.oppByCat).map(([k, v]) => [k, v.map(c => OPPORTUNITY_CARDS.indexOf(c))])),
+        market: decks.market.map(c => MARKET_CARDS.indexOf(c)),
+        expense: decks.expense.map(c => EXPENSE_CARDS.indexOf(c)),
+        bonus: decks.bonus.map(c => BONUS_CARDS.indexOf(c)),
+        baby: decks.baby.map(c => BABY_CARDS.indexOf(c)),
+      },
+      log: game.log.slice(-60),
+      savedAt: Date.now(),
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(s));
+  } catch (e) { /* حافظه در دسترس نیست */ }
+}
+
+function loadSave() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+
+function clearSave() {
+  try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* بدون حافظه */ }
+}
+
+function resumeGame() {
+  const s = loadSave();
+  if (!s) return;
+  const players = s.players.map(cfg => {
+    const job = JOBS.find(j => j.id === cfg.jobId) || JOBS[0];
+    return {
+      name: cfg.name, color: cfg.color, ai: cfg.ai, isHuman: cfg.isHuman, job,
+      cash: cfg.cash, salary: cfg.salary, passiveIncome: cfg.passiveIncome,
+      expenses: cfg.expenses, baseExpenses: cfg.baseExpenses,
+      expenseItems: cfg.expenseItems, assets: cfg.assets, loans: cfg.loans,
+      position: cfg.position, downsized: cfg.downsized, doubleRoll: cfg.doubleRoll,
+      escaped: cfg.escaped, totalPassiveEarned: cfg.totalPassiveEarned,
+      totalTaxPaid: cfg.totalTaxPaid, totalCharity: cfg.totalCharity,
+      investmentsBought: cfg.investmentsBought, bankruptcies: cfg.bankruptcies,
+    };
+  });
+  const cardAt = (cards, idx) => (idx >= 0 ? cards[idx] : null);
+  game = {
+    players,
+    current: s.current,
+    turn: s.turn,
+    winner: null,
+    decks: {
+      oppByCat: {
+        realestate: s.decks.oppByCat.realestate.map(i => cardAt(OPPORTUNITY_CARDS, i)).filter(Boolean),
+        business: s.decks.oppByCat.business.map(i => cardAt(OPPORTUNITY_CARDS, i)).filter(Boolean),
+        stock: s.decks.oppByCat.stock.map(i => cardAt(OPPORTUNITY_CARDS, i)).filter(Boolean),
+        savings: s.decks.oppByCat.savings.map(i => cardAt(OPPORTUNITY_CARDS, i)).filter(Boolean),
+      },
+      market: s.decks.market.map(i => cardAt(MARKET_CARDS, i)).filter(Boolean),
+      expense: s.decks.expense.map(i => cardAt(EXPENSE_CARDS, i)).filter(Boolean),
+      bonus: s.decks.bonus.map(i => cardAt(BONUS_CARDS, i)).filter(Boolean),
+      baby: s.decks.baby.map(i => cardAt(BABY_CARDS, i)).filter(Boolean),
+    },
+    log: [],
+  };
+
+  buildTokens(players);
+  (s.log || []).forEach(m => log(m));
   hide('setup-modal');
   $('roll-btn').disabled = false;
+  busy = false;
   renderAll();
-  log(`بازی جدید! ${p.map(x => x.name).join('، ')} در دایره فقر هستند.`);
+  log('بازی از ذخیره ادامه یافت.');
   log(`نوبت ${game.turn}: حرکت ${currentPlayer().name} (${currentPlayer().job.name}).`);
+  if (game.winner) return;
   currentPlayer().isHuman ? promptStart() : takeTurn();
+}
+
+function setupResume() {
+  const wrap = $('resume-wrap');
+  if (!wrap || !loadSave()) return;
+  wrap.innerHTML = '<button id="resume-btn" class="btn ok">ادامه بازی ذخیره‌شده</button>';
+  $('resume-btn').addEventListener('click', resumeGame);
 }
 
 function promptStart() {
@@ -275,6 +383,7 @@ async function takeTurn() {
   }
 
   busy = false;
+  saveGame();
   if (game.winner) return;
   if (next.ai) { takeTurn(); } else { $('roll-btn').disabled = false; renderAll(); }
 }
@@ -429,6 +538,7 @@ function takeLoan(p) {
   p.cash += 1000;
   p.loans.push({ principal: 1000, monthly: 80 });
   recalcExpenses(p);
+  saveGame();
 }
 
 function repayLoan(p, loan) {
@@ -436,6 +546,7 @@ function repayLoan(p, loan) {
     p.cash -= loan.principal;
     p.loans = p.loans.filter(l => l !== loan);
     recalcExpenses(p);
+    saveGame();
   }
 }
 
@@ -456,6 +567,7 @@ function sellAsset(p, a) {
   sfx.coin();
   log(`${p.name} ${a.name} را به ${fmt(a.value)} می‌فروشد.`);
   renderAll();
+  saveGame();
 }
 
 async function onOpportunity(p) {
@@ -543,6 +655,7 @@ function buyAsset(p, card) {
   sfx.buy();
   log(`${p.name} ${card.title} را خرید. درآمد غیرفعال حالا ${fmt(p.passiveIncome)}/ماه است.`);
   renderAll();
+  saveGame();
 }
 
 async function onMarket(p) {
@@ -681,6 +794,7 @@ async function onCharity(p) {
 /* ---------------- پایان بازی ---------------- */
 async function endGame(w) {
   sfx.win();
+  clearSave();
   showConfetti();
   const winnerHtml = `
     <div class="win-avatar" style="background:${w.color}">${w.name.charAt(0).toUpperCase()}</div>
@@ -959,23 +1073,17 @@ function init() {
     takeTurn();
   });
   $('portfolio-btn').addEventListener('click', openPortfolio);
-  $('new-btn').addEventListener('click', () => location.reload());
+  $('new-btn').addEventListener('click', () => { clearSave(); location.reload(); });
   $('help-btn').addEventListener('click', openHelp);
   $('lessons-btn').addEventListener('click', openLessons);
   $('glossary-btn').addEventListener('click', openGlossary);
   $('sound-btn').addEventListener('click', () => {
     soundOn = !soundOn;
     $('sound-btn').textContent = soundOn ? 'صدا: روشن' : 'صدا: خاموش';
+    try { localStorage.setItem('mq_sound', soundOn ? '1' : '0'); } catch (e) { /* بدون حافظه */ }
   });
-  $('setup-start').addEventListener('click', startGame);
-  $('add-player').addEventListener('click', () => {
-    const n = $('players-list').children.length;
-    if (n < 4) buildSetupRows(n + 1);
-  });
-  $('remove-player').addEventListener('click', () => {
-    const n = $('players-list').children.length;
-    if (n > 1) buildSetupRows(n - 1);
-  });
+  $('sound-btn').textContent = soundOn ? 'صدا: روشن' : 'صدا: خاموش';
+  setupResume();
   openSetup();
 }
 
