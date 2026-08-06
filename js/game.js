@@ -1083,6 +1083,15 @@ function init() {
     try { localStorage.setItem('mq_sound', soundOn ? '1' : '0'); } catch (e) { /* no storage */ }
   });
   $('sound-btn').textContent = soundOn ? 'Sound: On' : 'Sound: Off';
+  $('setup-start').addEventListener('click', startGame);
+  $('add-player').addEventListener('click', () => {
+    const n = $('players-list').children.length;
+    if (n < 4) buildSetupRows(n + 1);
+  });
+  $('remove-player').addEventListener('click', () => {
+    const n = $('players-list').children.length;
+    if (n > 1) buildSetupRows(n - 1);
+  });
   setupResume();
   openSetup();
 }

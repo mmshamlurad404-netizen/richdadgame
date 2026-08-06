@@ -7,6 +7,7 @@ const FA = { html: path.join(ROOT, 'fa'), js: path.join(ROOT, 'fa', 'js'), lang:
 
 const TESTS = [
   { file: 'startgame.test.js' },
+  { file: 'setup-click.test.js' },
   { file: 'toggle.test.js' },
   { file: 'lessons.test.js' },
   { file: 'save.test.js' },
