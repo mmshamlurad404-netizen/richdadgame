@@ -588,6 +588,28 @@ main {
 .setup-actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
 .setup-actions .btn { flex: 1; }
 .difficulty-tag { font-size: 0.7rem; color: var(--muted); }
+.setup-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+  background: rgba(0, 0, 0, 0.22);
+  padding: 9px 12px;
+  border-radius: 10px;
+}
+.setup-select {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--ink);
+  padding: 7px 10px;
+  font-family: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.setup-select option { background: var(--panel2); color: var(--ink); }
+.setup-row .hint { flex-basis: 100%; }
 
 /* ---------- settings ---------- */
 .set-group { margin: 14px 0; }

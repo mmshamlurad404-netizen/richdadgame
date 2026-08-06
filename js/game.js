@@ -178,11 +178,11 @@ function startGame() {
     });
   });
   if (players.length < 1) players.length = 1;
-  beginGame(players);
+  beginGame(players, $('ai-difficulty').value);
 }
 
 /* ---------------- game lifecycle ---------------- */
-function beginGame(players) {
+function beginGame(players, difficulty) {
   const p = players.map((cfg, i) => {
     const job = JOBS.find(j => j.id === cfg.jobId);
     return {
@@ -216,6 +216,7 @@ function beginGame(players) {
     current: 0,
     turn: 1,
     month: 1,
+    difficulty: difficulty || 'medium',
     winner: null,
     decks: {
       oppByCat: {
@@ -279,6 +280,7 @@ function saveGame() {
       current: game.current,
       turn: game.turn,
       month: game.month,
+      difficulty: game.difficulty,
       decks: {
         oppByCat: Object.fromEntries(Object.entries(decks.oppByCat).map(([k, v]) => [k, v.map(c => OPPORTUNITY_CARDS.indexOf(c))])),
         market: decks.market.map(c => MARKET_CARDS.indexOf(c)),
@@ -326,6 +328,7 @@ function resumeGame() {
     current: s.current,
     turn: s.turn,
     month: s.month || 1,
+    difficulty: s.difficulty || 'medium',
     winner: null,
     decks: {
       oppByCat: {
@@ -375,7 +378,10 @@ async function takeTurn() {
   $('roll-btn').disabled = true;
   renderAll();
   if (game.turn > 1 && (game.turn - 1) % game.players.length === 0) advanceMonth();
-  if (p.ai) await sleep(700);
+  if (p.ai) {
+    await sleep(700);
+    if (aiDifficultyLevel() === 'hard') aiManagePortfolio(p);
+  }
 
   await roll(p);
 
@@ -661,13 +667,85 @@ async function onOpportunity(p) {
     });
     await new Promise((res) => { resolver = res; });
   } else {
-    const reserve = Math.max(200, Math.min(2500, Math.round(p.expenses * 0.3)));
-    const buyable = offers
-      .filter(o => o.card.monthly > 0 && p.cash >= o.card.cost + reserve && paybackMonths(o.card) <= 90)
+    const bought = aiPickDeals(p, offers);
+    if (!bought.length) log(`${p.name} passes on today's deals.`);
+  }
+}
+
+/* ---------------- AI difficulty ---------------- */
+function aiDifficultyLevel() {
+  return (game && game.difficulty) || 'medium';
+}
+
+function aiSellThreshold() {
+  switch (aiDifficultyLevel()) {
+    case 'easy': return 1.1;   // sells almost any business
+    case 'hard': return 2.2;   // only sells for a big premium
+    default: return 1.5;
+  }
+}
+
+/* Decide which deals an AI buys, based on difficulty. Returns bought cards. */
+function aiPickDeals(p, offers) {
+  const diff = aiDifficultyLevel();
+  const picked = [];
+
+  if (diff === 'easy') {
+    // Impulsive: no reserve, no value sense — buys any affordable offer.
+    const affordable = offers.filter(o => o.card.monthly > 0 && p.cash >= o.card.cost);
+    if (affordable.length) picked.push(pick(affordable).card);
+    if (picked.length) buyAsset(p, picked[0]);
+    return picked;
+  }
+
+  const reserve = Math.max(200, Math.min(2500, Math.round(p.expenses * 0.3)));
+
+  if (diff === 'hard') {
+    // Strategic: hunts short paybacks, buys up to two deals, uses good debt.
+    const ranked = offers
+      .filter(o => o.card.monthly > 0 && paybackMonths(o.card) <= 60)
       .sort((x, y) => paybackMonths(x.card) - paybackMonths(y.card) || y.card.monthly - x.card.monthly);
-    const best = buyable[0];
-    if (best) { buyAsset(p, best.card); log(`${p.name} buys ${best.card.title} for ${fmt(best.card.cost)} (+${fmt(best.card.monthly)}/mo).`); }
-    else { log(`${p.name} passes on today's deals.`); }
+    for (let i = 0; i < ranked.length && picked.length < 2; i++) {
+      const o = ranked[i];
+      if (p.cash >= o.card.cost + reserve) {
+        buyAsset(p, o.card);
+        picked.push(o.card);
+      }
+    }
+    if (!picked.length) {
+      // No deal affordable with a reserve — borrow for an outstanding deal.
+      const great = offers
+        .filter(o => o.card.monthly > 0 && paybackMonths(o.card) <= 36 && o.card.cost <= p.cash + 1000)
+        .sort((x, y) => paybackMonths(x.card) - paybackMonths(y.card))[0];
+      if (great && p.loans.length < 3) {
+        takeLoan(p);
+        log(`${p.name} takes a $1,000 loan to fund a great deal.`);
+        buyAsset(p, great.card);
+        picked.push(great.card);
+      }
+    }
+    return picked;
+  }
+
+  // medium — sensible: keeps a reserve and only buys a fast payback.
+  const buyable = offers
+    .filter(o => o.card.monthly > 0 && p.cash >= o.card.cost + reserve && paybackMonths(o.card) <= 90)
+    .sort((x, y) => paybackMonths(x.card) - paybackMonths(y.card) || y.card.monthly - x.card.monthly);
+  if (buyable.length) {
+    buyAsset(p, buyable[0].card);
+    picked.push(buyable[0].card);
+  }
+  return picked;
+}
+
+/* Hard AI tidies its balance sheet: repays loans when it has spare cash. */
+function aiManagePortfolio(p) {
+  const loans = p.loans.slice();
+  for (const l of loans) {
+    if (p.cash >= l.principal + Math.round(p.expenses)) {
+      repayLoan(p, l);
+      log(`${p.name} repays a bank loan to boost cash flow.`);
+    }
   }
 }
 
@@ -719,7 +797,7 @@ async function onMarket(p) {
     } else if (biz.length) {
       const target = biz[biz.length - 1];
       const offer = target.value * 2;
-      if (offer > target.value * 1.5) {
+      if (offer >= target.value * aiSellThreshold()) {
         p.cash += offer;
         p.passiveIncome -= target.monthly;
         p.assets = p.assets.filter(a => a !== target);
@@ -1206,6 +1284,11 @@ function init() {
   $('settings-btn').addEventListener('click', openSettings);
   applySettings();
   $('setup-start').addEventListener('click', startGame);
+  const aiSel = $('ai-difficulty');
+  try { aiSel.value = localStorage.getItem('mq_ai_diff') || 'medium'; } catch (e) { /* no storage */ }
+  aiSel.addEventListener('change', () => {
+    try { localStorage.setItem('mq_ai_diff', aiSel.value); } catch (e) { /* no storage */ }
+  });
   $('add-player').addEventListener('click', () => {
     const n = $('players-list').children.length;
     if (n < 4) buildSetupRows(n + 1);
