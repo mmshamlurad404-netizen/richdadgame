@@ -11,6 +11,7 @@ const TESTS = [
   { file: 'toggle.test.js' },
   { file: 'lessons.test.js' },
   { file: 'save.test.js' },
+  { file: 'difficulty.test.js' },
 ];
 
 let failed = 0;
