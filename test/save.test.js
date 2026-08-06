@@ -28,7 +28,7 @@ const p0 = saved.players[0];
 const deckOk =
   saved.decks.oppByCat.realestate.length >= 0 &&
   saved.decks.market.length === 7 &&
-  saved.decks.expense.length === 8 &&
+  saved.decks.expense.length === 10 &&
   saved.decks.bonus.length === 6 &&
   saved.decks.baby.length === 1;
 const stateOk = p0.cash === 14000 && p0.salary === 3000 && p0.passiveIncome === 1000 && p0.expenses === 580 && p0.position === 14 && p0.loans.length === 1 && p0.assets.length === 1;

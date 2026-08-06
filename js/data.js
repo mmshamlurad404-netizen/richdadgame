@@ -4,52 +4,82 @@
 
 const GAME_VERSION = '2.0';
 
-const BOARD_SIZE = 32;
+const BOARD_SIZE = 60;
+const BOARD_GRID = 16; // cells per edge of the square board ring (16×16)
 
-// board cell positions around a 9x9 ring
+// board cell positions around a 15x15 ring (60 cells)
 const BOARD_POS = (function () {
+  const n = BOARD_GRID - 1;
   const pos = [];
-  for (let c = 0; c < 9; c++) pos.push({ r: 0, c });
-  for (let r = 1; r < 9; r++) pos.push({ r, c: 8 });
-  for (let c = 7; c >= 0; c--) pos.push({ r: 8, c });
-  for (let r = 7; r >= 1; r--) pos.push({ r, c: 0 });
+  for (let c = 0; c <= n; c++) pos.push({ r: 0, c });
+  for (let r = 1; r <= n; r++) pos.push({ r, c: n });
+  for (let c = n - 1; c >= 0; c--) pos.push({ r: n, c });
+  for (let r = n - 1; r >= 1; r--) pos.push({ r, c: 0 });
   return pos;
 })();
 
-// space type per board index
+// space type per board index (0 = start). Payday every 8 spaces.
 const BOARD_TYPES = [
-  'payday',       // 0  start
+  'payday',       // 0   start
   'opportunity',  // 1
   'expense',      // 2
-  'tax',          // 3
+  'market',       // 3
   'opportunity',  // 4
-  'market',       // 5
+  'tax',          // 5
   'opportunity',  // 6
-  'opportunity',  // 7
+  'bonus',        // 7
   'payday',       // 8
   'expense',      // 9
   'opportunity',  // 10
   'baby',         // 11
   'market',       // 12
   'opportunity',  // 13
-  'payday',       // 14
-  'bonus',        // 15
+  'tax',          // 14
+  'opportunity',  // 15
   'payday',       // 16
-  'opportunity',  // 17
+  'expense',      // 17
   'market',       // 18
-  'expense',      // 19
-  'opportunity',  // 20
+  'opportunity',  // 19
+  'bonus',        // 20
   'downsized',    // 21
   'opportunity',  // 22
-  'opportunity',  // 23
+  'expense',      // 23
   'payday',       // 24
   'tax',          // 25
   'opportunity',  // 26
   'charity',      // 27
-  'opportunity',  // 28
+  'market',       // 28
   'opportunity',  // 29
-  'market',       // 30
-  'expense',      // 31
+  'expense',      // 30
+  'bonus',        // 31
+  'payday',       // 32
+  'opportunity',  // 33
+  'market',       // 34
+  'expense',      // 35
+  'tax',          // 36
+  'opportunity',  // 37
+  'baby',         // 38
+  'opportunity',  // 39
+  'payday',       // 40
+  'expense',      // 41
+  'opportunity',  // 42
+  'bonus',        // 43
+  'market',       // 44
+  'opportunity',  // 45
+  'tax',          // 46
+  'downsized',    // 47
+  'payday',       // 48
+  'opportunity',  // 49
+  'expense',      // 50
+  'market',       // 51
+  'opportunity',  // 52
+  'charity',      // 53
+  'bonus',        // 54
+  'opportunity',  // 55
+  'payday',       // 56
+  'expense',      // 57
+  'tax',          // 58
+  'opportunity',  // 59
 ];
 
 const SPACE_INFO = {
@@ -106,6 +136,10 @@ const OPPORTUNITY_CARDS = [
   { title: 'Room for Rent',          cat: 'realestate', cost: 6000,   monthly: 750,  value: 6000,  desc: 'Rent out a spare room in your house.', lesson: 'Assets put money in your pocket each month.' },
   { title: 'Online Book Store',      cat: 'business', cost: 2500,  monthly: 350,  value: 2500,  desc: 'Sell second-hand books online.', lesson: 'A business is an asset that earns for you.' },
   { title: 'High-Interest CD',       cat: 'savings',  cost: 3000,  monthly: 200,  value: 3000,  desc: 'Lock money in a certificate of deposit.', lesson: 'Savings can earn interest — your money grows.' },
+  { title: 'Corporate Bond',         cat: 'savings',  cost: 4000,  monthly: 280,  value: 4000,  desc: 'Lend to a big company, earn steady interest.', lesson: 'Company bonds pay more than savings — for a little more risk.' },
+  { title: 'Two Parking Spots',      cat: 'realestate', cost: 3000,  monthly: 380,  value: 3000,  desc: 'Rent out two spots in a downtown lot.', lesson: 'Even tiny real estate earns every month.' },
+  { title: 'Cabin by the Lake',      cat: 'realestate', cost: 10000,  monthly: 1050, value: 10000, desc: 'Buy a small holiday cabin and rent it out.', lesson: 'A vacation home becomes an asset when it earns rent.' },
+  { title: 'AutoDrive Stock',        cat: 'stock',    cost: 1500,  monthly: 55,   value: 1500,  desc: 'Buy 60 shares of a self-driving car startup at $25 each.', lesson: 'Growth stocks start small — and can boom or bust.' },
   { title: 'HealthPlus Stock',       cat: 'stock',    cost: 2500,  monthly: 90,   value: 2500,  desc: 'Buy 50 shares of a healthcare firm at $50 each.', lesson: 'Some assets are safer, some riskier. Diversify!' },
   { title: 'Sunny Solar Stock',      cat: 'stock',    cost: 2000,  monthly: 65,   value: 2000,  desc: 'Buy 100 shares of a solar company at $20 each.', lesson: 'Green energy stocks can boom — or crash.' },
   { title: 'Pet Grooming Kits',      cat: 'business', cost: 4000,  monthly: 650,  value: 4000,  desc: 'Start a mobile pet-grooming service.', lesson: 'Find a need, fill it, get paid monthly.' },
@@ -137,6 +171,8 @@ const EXPENSE_CARDS = [
   { title: 'Take-out Night', cash: 90, desc: 'You skip cooking all week.', lesson: 'Small treats are fine; habits cost more.' },
   { title: 'School Trip', cash: 180, desc: 'A science trip to the city.', lesson: 'Experiences are worth it — plan ahead.' },
   { title: 'Gaming Bundle', cash: 130, desc: 'A new game pass you have been eyeing.', lesson: 'A once-off treat is fine, but watch impulse buys.' },
+  { title: 'Concert Ticket', cash: 250, desc: 'Your favourite band finally plays in town.', lesson: 'Memories are priceless — budget for them first.' },
+  { title: 'Library Fine', cash: 45, desc: 'You returned that book three weeks late.', lesson: 'Small fees add up fast. Track your deadlines.' },
 ];
 
 const BONUS_CARDS = [

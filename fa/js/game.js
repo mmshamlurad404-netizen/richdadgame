@@ -66,6 +66,7 @@ const sfx = {
 function buildBoard() {
   const board = $('board');
   const frag = document.createDocumentFragment();
+  const cellPct = 100 / BOARD_GRID;
   for (let i = 0; i < BOARD_SIZE; i++) {
     const type = BOARD_TYPES[i];
     const info = SPACE_INFO[type];
@@ -74,10 +75,10 @@ function buildBoard() {
     cell.className = 'cell type-' + type + (i === 0 ? ' cell-start' : '');
     cell.dataset.index = i;
     cell.title = info.tip;
-    cell.style.left = (pos.c * 100 / 9) + '%';
-    cell.style.top = (pos.r * 100 / 9) + '%';
-    cell.style.width = (100 / 9) + '%';
-    cell.style.height = (100 / 9) + '%';
+    cell.style.left = (pos.c * cellPct) + '%';
+    cell.style.top = (pos.r * cellPct) + '%';
+    cell.style.width = cellPct + '%';
+    cell.style.height = cellPct + '%';
     cell.innerHTML =
       '<svg viewBox="0 0 24 24" class="cell-icon">' + SVG_ICONS[info.icon] + '</svg>' +
       '<span class="cell-label">' + info.label + '</span>' +
@@ -90,14 +91,22 @@ function buildBoard() {
   const tokens = document.createElement('div');
   tokens.id = 'tokens';
   board.appendChild(tokens);
+
+  // داشبورد مرکزی دقیقاً داخل حلقه قرار می‌گیرد
+  const c = $('center');
+  c.style.left = cellPct + '%';
+  c.style.top = cellPct + '%';
+  c.style.width = (100 - 2 * cellPct) + '%';
+  c.style.height = (100 - 2 * cellPct) + '%';
 }
 
 function placeToken(p) {
   const pos = BOARD_POS[p.position];
   const t = document.getElementById('token-' + p.color.replace('#', ''));
   if (!t) return;
-  t.style.left = ((pos.c + 0.5) * 100 / 9) + '%';
-  t.style.top = ((pos.r + 0.5) * 100 / 9) + '%';
+  const cellPct = 100 / BOARD_GRID;
+  t.style.left = ((pos.c + 0.5) * cellPct) + '%';
+  t.style.top = ((pos.r + 0.5) * cellPct) + '%';
   t.classList.toggle('is-current', p === currentPlayer());
 }
 
@@ -206,6 +215,7 @@ function beginGame(players) {
     players: p,
     current: 0,
     turn: 1,
+    month: 1,
     winner: null,
     decks: {
       oppByCat: {
@@ -255,7 +265,7 @@ function saveGame() {
   try {
     const decks = game.decks;
     const s = {
-      v: 1,
+      v: 2,
       players: game.players.map(p => ({
         name: p.name, color: p.color, ai: p.ai, isHuman: p.isHuman, jobId: p.job.id,
         cash: p.cash, salary: p.salary, passiveIncome: p.passiveIncome,
@@ -268,6 +278,7 @@ function saveGame() {
       })),
       current: game.current,
       turn: game.turn,
+      month: game.month,
       decks: {
         oppByCat: Object.fromEntries(Object.entries(decks.oppByCat).map(([k, v]) => [k, v.map(c => OPPORTUNITY_CARDS.indexOf(c))])),
         market: decks.market.map(c => MARKET_CARDS.indexOf(c)),
@@ -314,6 +325,7 @@ function resumeGame() {
     players,
     current: s.current,
     turn: s.turn,
+    month: s.month || 1,
     winner: null,
     decks: {
       oppByCat: {
@@ -362,6 +374,7 @@ async function takeTurn() {
   const p = currentPlayer();
   $('roll-btn').disabled = true;
   renderAll();
+  if (game.turn > 1 && (game.turn - 1) % game.players.length === 0) advanceMonth();
   if (p.ai) await sleep(700);
 
   await roll(p);
@@ -386,6 +399,22 @@ async function takeTurn() {
   saveGame();
   if (game.winner) return;
   if (next.ai) { takeTurn(); } else { $('roll-btn').disabled = false; renderAll(); }
+}
+
+/* ماه جدید: معاملات و هزینه‌های امروز به یک مجموعه تصادفی تازه می‌چرخند. */
+function advanceMonth() {
+  game.month++;
+  game.decks.oppByCat = {
+    realestate: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'realestate')),
+    business: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'business')),
+    stock: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'stock')),
+    savings: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'savings')),
+  };
+  game.decks.expense = shuffle(EXPENSE_CARDS);
+  game.decks.bonus = shuffle(BONUS_CARDS);
+  game.decks.market = shuffle(MARKET_CARDS);
+  log(`ماه ${game.month.toLocaleString('fa-IR')}: معاملات و هزینه‌های امروز تغییر کرد!`);
+  renderAll();
 }
 
 async function roll(p) {
@@ -843,7 +872,7 @@ function renderCenter() {
     <div class="ctop">
       <div class="cavatar" style="background:${p.color}">${p.name.charAt(0).toUpperCase()}</div>
       <div class="cname"><b>${p.name}</b><span>${p.job.name}${p.ai ? ' · هوش مصنوعی' : ''}</span></div>
-      <div class="ccash">نقدینگی <b>${fmt(p.cash)}</b></div>
+      <div class="ccash">نقدینگی <b>${fmt(p.cash)}</b><span class="cmonth">ماه ${game.month.toLocaleString('fa-IR')}</span></div>
     </div>
     <div class="cincome">
       <div class="st"><span>درآمد فعال (حقوق)</span><b class="green">+${fmt(p.salary)}</b></div>
@@ -1064,6 +1093,97 @@ function openLessons() {
   $('card-body').querySelector('[data-hclose]').addEventListener('click', () => hide('card-modal'));
 }
 
+/* ---------------- تنظیمات (قلم / اندازه / رنگ) ---------------- */
+const SETTINGS_KEYS = { font: 'mq_font', size: 'mq_size', theme: 'mq_theme' };
+
+const FONT_OPTIONS = [
+  { v: 'system',   label: 'پیش‌فرض سیستم',           family: '"Segoe UI", "Trebuchet MS", system-ui, -apple-system, sans-serif' },
+  { v: 'vazir',    label: 'وزیرمتن (فارسی)',          family: '"Vazirmatn", Tahoma, "Segoe UI", sans-serif' },
+  { v: 'tahoma',   label: 'تاهوما (فارسی)',            family: 'Tahoma, "Segoe UI", sans-serif' },
+  { v: 'noto',     label: 'نوتو سانس عربی (فارسی)',    family: '"Noto Sans Arabic", Tahoma, "Segoe UI", sans-serif' },
+  { v: 'segoe',    label: 'سگوئه یوآی',                family: '"Segoe UI", system-ui, sans-serif' },
+  { v: 'georgia',  label: 'جورجیا (سریف)',             family: 'Georgia, "Times New Roman", serif' },
+  { v: 'verdana',  label: 'وردانا',                    family: 'Verdana, Geneva, sans-serif' },
+  { v: 'trebuchet', label: 'تربوشت',                   family: '"Trebuchet MS", "Segoe UI", sans-serif' },
+  { v: 'mono',     label: 'کوریر نیو (مونواسپیس)',     family: '"Courier New", Courier, monospace' },
+];
+
+const THEME_OPTIONS = [
+  { v: 'dark',  label: 'تیره' },
+  { v: 'light', label: 'روشن' },
+  { v: 'high',  label: 'کنتراست بالا' },
+];
+
+function readSetting(key, def) {
+  try { return localStorage.getItem(key) || def; } catch (e) { return def; }
+}
+
+function applyFont(v) {
+  const opt = FONT_OPTIONS.find(o => o.v === v) || FONT_OPTIONS[0];
+  document.body.style.fontFamily = opt.family;
+  try { localStorage.setItem(SETTINGS_KEYS.font, v); } catch (e) { /* بدون حافظه */ }
+}
+function applyFontSize(px) {
+  document.documentElement.style.fontSize = px + 'px';
+  try { localStorage.setItem(SETTINGS_KEYS.size, String(px)); } catch (e) { /* بدون حافظه */ }
+}
+function applyTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  try { localStorage.setItem(SETTINGS_KEYS.theme, t); } catch (e) { /* بدون حافظه */ }
+}
+
+function applySettings() {
+  applyFont(readSetting(SETTINGS_KEYS.font, 'system'));
+  applyFontSize(parseInt(readSetting(SETTINGS_KEYS.size, '16'), 10) || 16);
+  applyTheme(readSetting(SETTINGS_KEYS.theme, 'dark'));
+}
+
+function openSettings() {
+  const font = readSetting(SETTINGS_KEYS.font, 'system');
+  const size = parseInt(readSetting(SETTINGS_KEYS.size, '16'), 10) || 16;
+  const theme = readSetting(SETTINGS_KEYS.theme, 'dark');
+  const fontsHtml = FONT_OPTIONS.map(o =>
+    `<option value="${o.v}" ${o.v === font ? 'selected' : ''}>${o.label}</option>`).join('');
+  const themesHtml = THEME_OPTIONS.map(o =>
+    `<button class="btn small ${o.v === theme ? 'ok' : 'header-btn'}" data-theme="${o.v}">${o.label}</button>`).join('');
+  $('card-body').innerHTML = `
+    <h2>تنظیمات</h2>
+    <div class="set-group">
+      <label class="set-label" for="set-font">خانواده قلم</label>
+      <select id="set-font" class="set-select">${fontsHtml}</select>
+    </div>
+    <div class="set-group">
+      <label class="set-label" for="set-size">اندازه قلم: <b id="set-size-val">${size}px</b></label>
+      <input id="set-size" type="range" min="13" max="22" step="1" value="${size}" class="set-range">
+    </div>
+    <div class="set-group">
+      <label class="set-label">پوسته رنگی</label>
+      <div class="set-themes">${themesHtml}</div>
+    </div>
+    <div class="card-actions2">
+      <button class="btn header-btn" data-act="reset">بازنشانی پیش‌فرض</button>
+      <button class="btn ok" data-act="close">بستن</button>
+    </div>`;
+  show('card-modal');
+  $('set-font').addEventListener('change', (e) => applyFont(e.target.value));
+  $('set-size').addEventListener('input', (e) => {
+    applyFontSize(+e.target.value);
+    $('set-size-val').textContent = e.target.value + 'px';
+  });
+  $('card-body').querySelectorAll('[data-theme]').forEach(b =>
+    b.addEventListener('click', () => { applyTheme(b.dataset.theme); openSettings(); }));
+  $('card-body').querySelector('[data-act="reset"]').addEventListener('click', () => {
+    try {
+      localStorage.removeItem(SETTINGS_KEYS.font);
+      localStorage.removeItem(SETTINGS_KEYS.size);
+      localStorage.removeItem(SETTINGS_KEYS.theme);
+    } catch (e) { /* بدون حافظه */ }
+    applySettings();
+    openSettings();
+  });
+  $('card-body').querySelector('[data-act="close"]').addEventListener('click', () => hide('card-modal'));
+}
+
 /* ---------------- شروع ---------------- */
 function init() {
   buildBoard();
@@ -1083,6 +1203,8 @@ function init() {
     try { localStorage.setItem('mq_sound', soundOn ? '1' : '0'); } catch (e) { /* بدون حافظه */ }
   });
   $('sound-btn').textContent = soundOn ? 'صدا: روشن' : 'صدا: خاموش';
+  $('settings-btn').addEventListener('click', openSettings);
+  applySettings();
   $('setup-start').addEventListener('click', startGame);
   $('add-player').addEventListener('click', () => {
     const n = $('players-list').children.length;

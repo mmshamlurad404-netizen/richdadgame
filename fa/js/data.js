@@ -4,52 +4,82 @@
 
 const GAME_VERSION = '2.0';
 
-const BOARD_SIZE = 32;
+const BOARD_SIZE = 60;
+const BOARD_GRID = 16; // تعداد خانه در هر لبه صفحه (شبکه ۱۶×۱۶)
 
-// موقعیت خانه‌های صفحه دور حلقه ۹x۹
+// موقعیت خانه‌های صفحه دور حلقه ۱۵x۱۵ (۶۰ خانه)
 const BOARD_POS = (function () {
+  const n = BOARD_GRID - 1;
   const pos = [];
-  for (let c = 0; c < 9; c++) pos.push({ r: 0, c });
-  for (let r = 1; r < 9; r++) pos.push({ r, c: 8 });
-  for (let c = 7; c >= 0; c--) pos.push({ r: 8, c });
-  for (let r = 7; r >= 1; r--) pos.push({ r, c: 0 });
+  for (let c = 0; c <= n; c++) pos.push({ r: 0, c });
+  for (let r = 1; r <= n; r++) pos.push({ r, c: n });
+  for (let c = n - 1; c >= 0; c--) pos.push({ r: n, c });
+  for (let r = n - 1; r >= 1; r--) pos.push({ r, c: 0 });
   return pos;
 })();
 
-// نوع هر خانه بر اساس شماره
+// نوع هر خانه بر اساس شماره (۰ = شروع). هر ۸ خانه یک حقوق.
 const BOARD_TYPES = [
-  'payday',       // 0  شروع
+  'payday',       // 0   شروع
   'opportunity',  // 1
   'expense',      // 2
-  'tax',          // 3
+  'market',       // 3
   'opportunity',  // 4
-  'market',       // 5
+  'tax',          // 5
   'opportunity',  // 6
-  'opportunity',  // 7
+  'bonus',        // 7
   'payday',       // 8
   'expense',      // 9
   'opportunity',  // 10
   'baby',         // 11
   'market',       // 12
   'opportunity',  // 13
-  'payday',       // 14
-  'bonus',        // 15
+  'tax',          // 14
+  'opportunity',  // 15
   'payday',       // 16
-  'opportunity',  // 17
+  'expense',      // 17
   'market',       // 18
-  'expense',      // 19
-  'opportunity',  // 20
+  'opportunity',  // 19
+  'bonus',        // 20
   'downsized',    // 21
   'opportunity',  // 22
-  'opportunity',  // 23
+  'expense',      // 23
   'payday',       // 24
   'tax',          // 25
   'opportunity',  // 26
   'charity',      // 27
-  'opportunity',  // 28
+  'market',       // 28
   'opportunity',  // 29
-  'market',       // 30
-  'expense',      // 31
+  'expense',      // 30
+  'bonus',        // 31
+  'payday',       // 32
+  'opportunity',  // 33
+  'market',       // 34
+  'expense',      // 35
+  'tax',          // 36
+  'opportunity',  // 37
+  'baby',         // 38
+  'opportunity',  // 39
+  'payday',       // 40
+  'expense',      // 41
+  'opportunity',  // 42
+  'bonus',        // 43
+  'market',       // 44
+  'opportunity',  // 45
+  'tax',          // 46
+  'downsized',    // 47
+  'payday',       // 48
+  'opportunity',  // 49
+  'expense',      // 50
+  'market',       // 51
+  'opportunity',  // 52
+  'charity',      // 53
+  'bonus',        // 54
+  'opportunity',  // 55
+  'payday',       // 56
+  'expense',      // 57
+  'tax',          // 58
+  'opportunity',  // 59
 ];
 
 const SPACE_INFO = {
@@ -106,6 +136,10 @@ const OPPORTUNITY_CARDS = [
   { title: 'اجاره اتاق',           cat: 'realestate', cost: 6000,   monthly: 750,  value: 6000,  desc: 'یک اتاق اضافه در خانه‌ات اجاره بده.', lesson: 'دارایی‌ها هر ماه پول در جیب تو می‌گذارند.' },
   { title: 'فروشگاه کتاب آنلاین',  cat: 'business', cost: 2500,  monthly: 350,  value: 2500,  desc: 'کتاب‌های دست‌دوم را آنلاین بفروش.', lesson: 'کسب‌وکار دارایی‌ای است که برایت درآمد می‌سازد.' },
   { title: 'گواهی سپرده با سود بالا', cat: 'savings',  cost: 3000,  monthly: 200,  value: 3000,  desc: 'پول را در گواهی سپرده قفل کن.', lesson: 'پس‌انداز می‌تواند سود بدهد — پولت رشد می‌کند.' },
+  { title: 'اوراق قرضه شرکتی',       cat: 'savings',  cost: 4000,  monthly: 280,  value: 4000,  desc: 'به یک شرکت بزرگ وام بده و سود ثابت بگیر.', lesson: 'اوراق شرکتی بیشتر از پس‌انداز سود می‌دهد — با کمی ریسک بیشتر.' },
+  { title: 'دو جای پارک',            cat: 'realestate', cost: 3000,  monthly: 380,  value: 3000,  desc: 'دو جای پارک در پارکینگ مرکز شهر اجاره بده.', lesson: 'حتی ملک کوچک هم هر ماه درآمد دارد.' },
+  { title: 'کلبه کنار دریاچه',       cat: 'realestate', cost: 10000,  monthly: 1050, value: 10000, desc: 'یک کلبه کوچک تفریحی بخر و اجاره بده.', lesson: 'خانه تعطیلات وقتی اجاره داده شود دارایی می‌شود.' },
+  { title: 'سهام اتودرایو',         cat: 'stock',    cost: 1500,  monthly: 55,   value: 1500,  desc: '۶۰ سهم از استارتاپ خودروی خودران به قیمت ۲۵ دلار بخر.', lesson: 'سهام رشدی کوچک شروع می‌شود — و می‌تواند جهش کند یا ورشکست شود.' },
   { title: 'سهام سلامت‌پلاس',      cat: 'stock',    cost: 2500,  monthly: 90,   value: 2500,  desc: '۵۰ سهم از یک شرکت سلامت به قیمت ۵۰ دلار بخر.', lesson: 'بعضی دارایی‌ها امن‌ترند و بعضی پرریسک‌تر. تنوع بساز!' },
   { title: 'سهام انرژی خورشیدی',  cat: 'stock',    cost: 2000,  monthly: 65,   value: 2000,  desc: '۱۰۰ سهم از یک شرکت خورشیدی به قیمت ۲۰ دلار بخر.', lesson: 'سهام انرژی سبز می‌تواند جهش کند — یا سقوط کند.' },
   { title: 'کیت‌های نظافت حیوانات', cat: 'business', cost: 4000,  monthly: 650,  value: 4000,  desc: 'یک سرویس سیار نظافت حیوانات راه بینداز.', lesson: 'نیازی را پیدا کن، برطرفش کن، هر ماه حقوق بگیر.' },
@@ -137,6 +171,8 @@ const EXPENSE_CARDS = [
   { title: 'شب بیرون غذا', cash: 90, desc: 'کل هفته غذای بیرون خوردی.', lesson: 'لذت‌های کوچک خوب‌اند؛ عادت‌ها گران‌ترند.' },
   { title: 'اردوی مدرسه', cash: 180, desc: 'یک سفر علمی به شهر.', lesson: 'تجربه‌ها ارزش دارند — از قبل برنامه‌ریزی کن.' },
   { title: 'بسته بازی', cash: 130, desc: 'یک گذرنامه بازی جدید که چشم به آن داشتی.', lesson: 'یک خرج تک‌باره خوب است، ولی مواظب خریدهای لحظه‌ای باش.' },
+  { title: 'بلیط کنسرت', cash: 250, desc: 'گروه محبوبت بالاخره در شهر اجرا می‌کند.', lesson: 'خاطره‌ها بی‌قیمت‌اند — اول برایشان بودجه بگذار.' },
+  { title: 'جریمه کتابخانه', cash: 45, desc: 'آن کتاب را سه هفته دیر پس دادید.', lesson: 'جریمه‌های کوچک زود جمع می‌شوند. به موعدها توجه کن.' },
 ];
 
 const BONUS_CARDS = [
