@@ -2,6 +2,8 @@
    Money Quest — game data (jobs, board, cards, lessons)
    ============================================================ */
 
+const GAME_VERSION = '2.0';
+
 const BOARD_SIZE = 32;
 
 // board cell positions around a 9x9 ring
