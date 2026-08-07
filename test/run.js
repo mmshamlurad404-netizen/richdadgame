@@ -13,6 +13,7 @@ const TESTS = [
   { file: 'save.test.js' },
   { file: 'v2.test.js' },
   { file: 'difficulty.test.js' },
+  { file: 'v3features.test.js' },
 ];
 
 let failed = 0;

@@ -173,6 +173,7 @@ main {
 .type-baby { background: linear-gradient(160deg, #ee6bb0, #d62d86); }
 .type-downsized { background: linear-gradient(160deg, #7e8aa0, #55617a); }
 .type-charity { background: linear-gradient(160deg, #34d1b1, #12a68a); }
+.type-career { background: linear-gradient(160deg, #a1887f, #6d4c41); }
 
 .cell-start { border-color: var(--gold); box-shadow: inset 0 0 0 2px rgba(255, 209, 102, 0.8), 0 2px 8px rgba(0,0,0,0.4); }
 
