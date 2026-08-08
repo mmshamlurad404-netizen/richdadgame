@@ -38,13 +38,13 @@ const BOARD_TYPES = [
   'expense',      // 19
   'opportunity',  // 20
   'downsized',    // 21
-  'opportunity',  // 22
+  'career',       // 22
   'opportunity',  // 23
   'payday',       // 24
   'tax',          // 25
   'opportunity',  // 26
   'charity',      // 27
-  'opportunity',  // 28
+  'career',       // 28
   'opportunity',  // 29
   'market',       // 30
   'expense',      // 31
@@ -60,6 +60,7 @@ const SPACE_INFO = {
   baby:       { label: 'BABY',       color: '#e84393', icon: 'baby',    tip: 'New family members are a joy — and a budget line item.' },
   downsized:  { label: 'JOB LOSS',   color: '#6c7a89', icon: 'job',     tip: 'Anyone can lose a job. This is why your emergency fund matters.' },
   charity:    { label: 'GIVING',     color: '#1abc9c', icon: 'give',    tip: 'Giving 10% trains generosity. You earn a bonus roll next turn.' },
+  career:     { label: 'PROMOTION',  color: '#795548', icon: 'career',  tip: 'Work to learn! A promotion raises your salary — and a little of your expenses too.' },
 };
 
 const TYPE_COLORS = {
@@ -72,6 +73,7 @@ const TYPE_COLORS = {
   baby: '#e84393',
   downsized: '#6c7a89',
   charity: '#1abc9c',
+  career: '#795548',
 };
 
 const JOBS = [
@@ -150,6 +152,15 @@ const BABY_CARDS = [
   { title: 'A New Baby!', monthly: 60, cash: 100, desc: 'A new family member arrives. Diapers, formula, love.', lesson: 'Children are wonderful — and cost money. Plan ahead!' },
 ];
 
+const CAREER_TIERS = [
+  { name: 'Apprentice',  salaryMult: 1.0, expenseMult: 1.0 },
+  { name: 'Skilled',     salaryMult: 1.25, expenseMult: 1.05 },
+  { name: 'Specialist',  salaryMult: 1.55, expenseMult: 1.15 },
+  { name: 'Manager',     salaryMult: 2.0,  expenseMult: 1.3 },
+  { name: 'Director',    salaryMult: 2.6,  expenseMult: 1.5 },
+  { name: 'Executive',   salaryMult: 3.2,  expenseMult: 1.7 },
+];
+
 const LESSONS = {
   assets: 'An asset puts money IN your pocket every month: rent, dividends, business income.',
   liabilities: 'A liability takes money OUT of your pocket every month: bills, loans, subscriptions.',
@@ -161,6 +172,8 @@ const LESSONS = {
   freedom: 'Financial freedom = passive income greater than your expenses.',
   debt: 'A loan gives cash now, but interest takes money every month. Borrow wisely.',
   needs: 'Needs are things you must have. Wants are nice to have. Spend on needs first.',
+  promote: 'Career growth raises your salary — but lifestyle creep raises expenses too. What matters is the gap you keep and invest.',
+  bankrupt: 'When bills exceed every resource, you are bankrupt. Fire-sale, restructure or retire — bankruptcy is expensive, so plan to avoid it.',
 };
 
 const MONEY_LESSONS = [
@@ -314,6 +327,8 @@ const HOW_TO_PLAY = [
   { h: 'Markets', t: 'MARKET spaces (orange) change the value of what you own. Values rise and fall — that is normal.' },
   { h: 'Surprises', t: 'Expenses, taxes, babies and job losses happen to everyone. An emergency fund protects you.' },
   { h: 'Charity', t: 'Giving on the GIVING space earns you a bonus roll next turn. Generosity pays back.' },
+  { h: 'Promotions', t: 'PROMOTION spaces climb your career ladder: higher salary, a little more expense, and a cash bonus. Skills are assets too.' },
+  { h: 'Bankruptcy', t: 'If you cannot cover your bills, you must fire-sale assets, restructure your debt, or retire from the game. Avoid it with an emergency fund.' },
   { h: 'Winning', t: 'Reach passive income greater than expenses on a payday and you escape the Rat Race. The first to escape wins!' },
 ];
 

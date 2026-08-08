@@ -30,7 +30,10 @@ const SVG_ICONS = {
   baby: '<circle cx="12" cy="9" r="5"/><path d="M12 14v5M8 19h8"/>',
   job: '<path d="M3 21V5h18v16z"/><path d="M8 5V3h8v2"/>',
   give: '<path d="M12 21s-7-4.5-9.2-9C1.3 9 4 5.5 7 6c2 0 3 1 5 3 2-2 3-3 5-3 3 .5 5.7 3 4.2 6-2.2 4.5-9.2 9-9.2 9z"/>',
+  career: '<path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/>',
 };
+
+const LIVING_EXPENSE_NAME = 'Living expenses';
 
 let currentPlayer = () => game.players[game.current];
 let busy = false;
@@ -184,16 +187,19 @@ function beginGame(players, difficulty) {
       job: job,
       cash: job.cash,
       salary: job.salary,
+      baseSalary: job.salary,
+      careerTier: 0,
       passiveIncome: 0,
       expenses: job.expenses,
       baseExpenses: job.expenses,
-      expenseItems: [{ name: 'Living expenses', monthly: job.expenses }],
+      expenseItems: [{ name: LIVING_EXPENSE_NAME, monthly: job.expenses }],
       assets: [],
       loans: [],
       position: 0,
       downsized: 0,
       doubleRoll: false,
       escaped: false,
+      bankrupt: false,
       totalPassiveEarned: 0,
       totalTaxPaid: 0,
       totalCharity: 0,
@@ -259,11 +265,12 @@ function saveGame() {
       v: 1,
       players: game.players.map(p => ({
         name: p.name, color: p.color, ai: p.ai, isHuman: p.isHuman, jobId: p.job.id,
-        cash: p.cash, salary: p.salary, passiveIncome: p.passiveIncome,
+        cash: p.cash, salary: p.salary, baseSalary: p.baseSalary, careerTier: p.careerTier,
+        passiveIncome: p.passiveIncome,
         expenses: p.expenses, baseExpenses: p.baseExpenses,
         expenseItems: p.expenseItems, assets: p.assets, loans: p.loans,
         position: p.position, downsized: p.downsized, doubleRoll: p.doubleRoll,
-        escaped: p.escaped, totalPassiveEarned: p.totalPassiveEarned,
+        escaped: p.escaped, bankrupt: p.bankrupt, totalPassiveEarned: p.totalPassiveEarned,
         totalTaxPaid: p.totalTaxPaid, totalCharity: p.totalCharity,
         investmentsBought: p.investmentsBought, bankruptcies: p.bankruptcies,
       })),
@@ -302,11 +309,13 @@ function resumeGame() {
     const job = JOBS.find(j => j.id === cfg.jobId) || JOBS[0];
     return {
       name: cfg.name, color: cfg.color, ai: cfg.ai, isHuman: cfg.isHuman, job,
-      cash: cfg.cash, salary: cfg.salary, passiveIncome: cfg.passiveIncome,
+      cash: cfg.cash, salary: cfg.salary, baseSalary: cfg.baseSalary || job.salary,
+      careerTier: cfg.careerTier || 0,
+      passiveIncome: cfg.passiveIncome,
       expenses: cfg.expenses, baseExpenses: cfg.baseExpenses,
       expenseItems: cfg.expenseItems, assets: cfg.assets, loans: cfg.loans,
       position: cfg.position, downsized: cfg.downsized, doubleRoll: cfg.doubleRoll,
-      escaped: cfg.escaped, totalPassiveEarned: cfg.totalPassiveEarned,
+      escaped: cfg.escaped, bankrupt: !!cfg.bankrupt, totalPassiveEarned: cfg.totalPassiveEarned,
       totalTaxPaid: cfg.totalTaxPaid, totalCharity: cfg.totalCharity,
       investmentsBought: cfg.investmentsBought, bankruptcies: cfg.bankruptcies,
     };
@@ -332,6 +341,12 @@ function resumeGame() {
     },
     log: [],
   };
+
+  // never resume onto a bankrupt player
+  if (game.players[game.current].bankrupt && game.players.some(x => !x.bankrupt)) {
+    let guard = 0;
+    do { game.current = (game.current + 1) % game.players.length; } while (game.players[game.current].bankrupt && guard++ < game.players.length);
+  }
 
   buildTokens(players);
   (s.log || []).forEach(m => log(m));
@@ -374,8 +389,11 @@ async function takeTurn() {
 
   if (game.winner) { renderAll(); return; }
 
-  // next player
-  game.current = (game.current + 1) % game.players.length;
+  // next player — skip any player who went bankrupt
+  let guard = 0;
+  do {
+    game.current = (game.current + 1) % game.players.length;
+  } while (game.players[game.current].bankrupt && game.players.some(x => !x.bankrupt) && guard++ < game.players.length);
   game.turn++;
   renderAll();
 
@@ -429,6 +447,7 @@ async function land(p) {
     case 'baby': await onBaby(p); break;
     case 'downsized': await onDownsized(p); break;
     case 'charity': await onCharity(p); break;
+    case 'career': await onCareer(p); break;
   }
   renderAll();
 }
@@ -446,7 +465,7 @@ async function onPayday(p) {
   if (p.downsized > 0) {
     p.downsized--;
     const restored = p.downsized === 0;
-    if (restored) p.salary = p.job.salary;
+    if (restored) p.salary = p.baseSalary;
     const msg = restored
       ? 'You found a new job! Full salary returns next payday.'
       : 'You are on half pay while job-hunting.';
@@ -490,31 +509,111 @@ async function handleDebt(p) {
     });
     return w;
   };
-  let guard = 0;
-  while (p.cash < 0 && guard++ < 40) {
-    const a = worst();
-    if (a) {
-      p.cash += a.value;
-      p.passiveIncome -= a.monthly;
-      p.assets = p.assets.filter(x => x !== a);
+
+  // Human players choose their fate; AIs quietly liquidate then restructure.
+  if (p.isHuman) {
+    // Painless fix first: sell one asset at full value when that covers the deficit.
+    const cover = worst();
+    if (cover && p.cash + cover.value >= 0) {
+      p.cash += cover.value;
+      p.passiveIncome -= cover.monthly;
+      p.assets = p.assets.filter(x => x !== cover);
       p.bankruptcies++;
-      if (p.isHuman) log(`${p.name} was forced to sell ${a.name} for ${fmt(a.value)} to cover bills.`);
-      else log(`${p.name} sells ${a.name} to cover bills.`);
-    } else {
-      const loanInterest = p.loans.reduce((s, l) => s + l.monthly, 0);
-      const target = Math.max(Math.round(p.baseExpenses * 0.5), Math.round(p.expenses * 0.9));
-      const nonLoan = p.expenses - loanInterest;
-      if (nonLoan > 0) {
-        const factor = Math.max(0, target - loanInterest) / nonLoan;
-        p.expenseItems = p.expenseItems.map(it => ({ name: it.name, monthly: Math.max(0, Math.round(it.monthly * factor)) }));
-      }
-      recalcExpenses(p);
-      p.cash += 200;
-      p.bankruptcies++;
-      if (p.isHuman) log(`${p.name} had to cut lifestyle spending 10% and get family help.`);
-      else log(`${p.name} cuts lifestyle spending.`);
+      log(`${p.name} sold ${cover.name} for ${fmt(cover.value)} to cover bills.`);
+      return;
     }
+    const html = `
+      <div class="card-title">Bankruptcy!</div>
+      <div class="card-desc">Your cash is below zero and you cannot cover your bills. Choose how to respond:</div>
+      <div class="tip">Fire-sale: liquidate everything now at half price.<br>Restructure: keep your assets, clear your loans and reset your lifestyle.<br>Retire: leave the game and become a spectator.</div>`;
+    const choice = await showInfo('Bankruptcy', html, [
+      { v: 'firesale', label: 'Fire-sale assets (50%)', cls: 'ok' },
+      { v: 'restructure', label: 'Restructure debt', cls: 'ok' },
+      { v: 'retire', label: 'Retire (spectate)', cls: 'cancel' }]);
+    if (choice === 'retire') {
+      retire(p);
+      await checkElimination();
+      return;
+    }
+    if (choice === 'firesale') {
+      fireSaleAll(p);
+      if (p.cash >= 0) {
+        p.bankruptcies++;
+        log(`${p.name} fire-sold their assets at half price to survive.`);
+        return;
+      }
+    }
+    restructure(p);
+    return;
   }
+
+  // AI path — sell assets at full value until covered, otherwise restructure.
+  let guard = 0;
+  while (p.cash < 0 && p.assets.length && guard++ < 40) {
+    const a = worst();
+    if (!a) break;
+    p.cash += a.value;
+    p.passiveIncome -= a.monthly;
+    p.assets = p.assets.filter(x => x !== a);
+    p.bankruptcies++;
+    log(`${p.name} sells ${a.name} to cover bills.`);
+  }
+  if (p.cash < 0) restructure(p);
+}
+
+/* Sell every asset immediately at half its value. */
+function fireSaleAll(p) {
+  const sold = p.assets.slice();
+  sold.forEach(a => {
+    const val = Math.round(a.value * 0.5);
+    p.cash += val;
+    p.passiveIncome -= a.monthly;
+    p.assets = p.assets.filter(x => x !== a);
+    p.bankruptcies++;
+    log(`${p.name} fire-sells ${a.name} for ${fmt(val)}.`);
+  });
+}
+
+/* Keep assets, clear loans and reset the lifestyle to the base level. */
+function restructure(p) {
+  p.loans = [];
+  p.expenseItems = [{ name: LIVING_EXPENSE_NAME, monthly: p.baseExpenses }];
+  recalcExpenses(p);
+  p.salary = p.baseSalary;
+  p.cash = 200;
+  p.bankruptcies++;
+  if (p.isHuman) log(`${p.name} restructures: loans cleared and lifestyle reset to ${fmt(p.expenses)}/mo.`);
+  else log(`${p.name} restructures their debt.`);
+  saveGame();
+}
+
+/* Eliminate a player: they become a spectator and leave the turn rotation. */
+function retire(p) {
+  p.bankrupt = true;
+  p.cash = 0;
+  p.assets = [];
+  p.loans = [];
+  p.passiveIncome = 0;
+  p.expenseItems = [];
+  p.expenses = 0;
+  if (p.isHuman) log(`${p.name} declares bankruptcy and becomes a spectator.`);
+  else log(`${p.name} goes bankrupt and leaves the game.`);
+  saveGame();
+}
+
+/* After an elimination, someone may win by being the last player standing. */
+async function checkElimination() {
+  const active = game.players.filter(x => !x.bankrupt);
+  if (active.length === 0) {
+    clearSave();
+    await showInfo('Game Over', 'Every player went bankrupt. Nobody escaped the Rat Race this time — the game is over.', ['OK']);
+    return true;
+  }
+  if (active.length === 1) {
+    await endGame(active[0], 'last');
+    return true;
+  }
+  return false;
 }
 
 function recalcExpenses(p) {
@@ -842,7 +941,7 @@ async function onBaby(p) {
 
 async function onDownsized(p) {
   p.downsized = 2;
-  p.salary = Math.round(p.job.salary * 0.5);
+  p.salary = Math.round(p.baseSalary * 0.5);
   sfx.bad();
   const html = `
     <div class="card-title">Job Loss!</div>
@@ -869,22 +968,84 @@ async function onCharity(p) {
   renderAll();
 }
 
+/* ---------------- career / promotion ---------------- */
+function careerInfo(p) {
+  const tier = Math.min(p.careerTier || 0, CAREER_TIERS.length - 1);
+  return CAREER_TIERS[tier];
+}
+
+/* Advance a player one career tier: higher salary, slightly higher expenses, a bonus. Returns the result or null at the top of the ladder. */
+function promotePlayer(p) {
+  if ((p.careerTier || 0) >= CAREER_TIERS.length - 1) return null;
+  p.careerTier++;
+  const tier = careerInfo(p);
+  const prevSalary = p.salary;
+  const prevExp = p.expenses;
+  const newBase = Math.round(p.job.salary * tier.salaryMult);
+  p.baseSalary = newBase;
+  if (p.downsized === 0) p.salary = newBase;
+  const oldBaseExp = p.baseExpenses || p.job.expenses;
+  const newBaseExp = Math.round(p.job.expenses * tier.expenseMult);
+  const living = p.expenseItems.find(it => it.name === LIVING_EXPENSE_NAME);
+  if (living && oldBaseExp > 0) {
+    living.monthly = Math.max(0, Math.round(living.monthly * (newBaseExp / oldBaseExp)));
+  }
+  p.baseExpenses = newBaseExp;
+  recalcExpenses(p);
+  const bonus = scaleIncome(p, 400);
+  p.cash += bonus;
+  return { tier, prevSalary, newSalary: p.salary, prevExp, newExp: p.expenses, bonus };
+}
+
+async function onCareer(p) {
+  const maxed = (p.careerTier || 0) >= CAREER_TIERS.length - 1;
+  if (maxed) {
+    const bonus = scaleIncome(p, 300);
+    p.cash += bonus;
+    sfx.coin();
+    const html = `
+      <div class="card-title">Top of your career</div>
+      <div class="card-desc">You are already an <b>${careerInfo(p).name}</b> — the board cannot promote you any further. Your experience pays off: <b>+${fmt(bonus)}</b>.</div>
+      <div class="tip"><b>Lesson:</b> ${LESSONS.promote}</div>`;
+    if (p.isHuman) await showInfo('Career', html, ['OK']);
+    else log(`${p.name} tops out their career and banks ${fmt(bonus)}.`);
+    renderAll();
+    return;
+  }
+  const r = promotePlayer(p);
+  sfx.win();
+  const html = `
+    <div class="card-title">You've been promoted!</div>
+    <div class="card-desc">Hard work pays off — you are now a <b>${r.tier.name}</b>.</div>
+    <div class="card-stats">
+      <div><span>Salary</span><b class="green">${fmt(r.prevSalary)} → ${fmt(r.newSalary)}/mo</b></div>
+      <div><span>Expenses</span><b class="red">${fmt(r.prevExp)} → ${fmt(r.newExp)}/mo</b></div>
+      <div><span>Bonus</span><b class="green">+${fmt(r.bonus)}</b></div>
+    </div>
+    <div class="tip"><b>Lesson:</b> ${LESSONS.promote}</div>`;
+  if (p.isHuman) await showInfo('Career', html, ['OK']);
+  else log(`${p.name} is promoted to ${r.tier.name} (salary ${fmt(r.newSalary)}/mo).`);
+  renderAll();
+}
+
 /* ---------------- end of game ---------------- */
-async function endGame(w) {
+async function endGame(w, reason) {
   sfx.win();
   clearSave();
   showConfetti();
   const winnerHtml = `
     <div class="win-avatar" style="background:${w.color}">${w.name.charAt(0).toUpperCase()}</div>
-    <h2>${w.name} escaped the Rat Race!</h2>
-    <p>${w.name} built <b>${fmt(w.passiveIncome)}/month</b> in passive income — enough to cover <b>${fmt(w.expenses)}/month</b> in expenses.</p>
+    <h2>${w.name} ${reason === 'last' ? 'is the last one standing!' : 'escaped the Rat Race!'}</h2>
+    <p>${reason === 'last'
+      ? `All rivals went bankrupt. ${w.name} survives the Rat Race.`
+      : `${w.name} built <b>${fmt(w.passiveIncome)}/month</b> in passive income — enough to cover <b>${fmt(w.expenses)}/month</b> in expenses.`}</p>
     <div class="st">Net worth: <b>${fmt(netWorth(w))}</b> · Assets: <b>${w.assets.length}</b> · Cash: <b>${fmt(w.cash)}</b></div>
     <div class="tip">"${pick(WIN_TIPS)}"</div>
     <h3>Scoreboard</h3>
     <div class="scoreboard">
       ${game.players.map(p =>
         `<div class="sb-row ${p === w ? 'sb-win' : ''}"><span class="sb-dot" style="background:${p.color}"></span><b>${p.name}</b>` +
-        (p === w ? '<em>Winner</em>' : (p.escaped ? '<em>Escaped</em>' : '<em>Rat Race</em>')) +
+        (p === w ? '<em>Winner</em>' : (p.bankrupt ? '<em>Bankrupt</em>' : (p.escaped ? '<em>Escaped</em>' : '<em>Rat Race</em>'))) +
         `<span>NW ${fmt(netWorth(p))}</span></div>`).join('')}
     </div>
     <div class="tip">Passive earned: ${game.players.map(p => `${p.name} ${fmt(p.totalPassiveEarned)}`).join(' · ') || '—'}</div>`;
@@ -920,7 +1081,7 @@ function renderCenter() {
   c.innerHTML = `
     <div class="ctop">
       <div class="cavatar" style="background:${p.color}">${p.name.charAt(0).toUpperCase()}</div>
-      <div class="cname"><b>${p.name}</b><span>${p.job.name}${p.ai ? ' · AI' : ''}</span></div>
+      <div class="cname"><b>${p.name}</b><span>${p.job.name}${p.ai ? ' · AI' : ''}${(p.careerTier || 0) > 0 ? ' · ' + careerInfo(p).name : ''}</span></div>
       <div class="ccash">Cash <b>${fmt(p.cash)}</b></div>
     </div>
     <div class="cincome">
@@ -1037,6 +1198,7 @@ function openPortfolio() {
       <div><span>Passive/mo</span><b class="green">+${fmt(p.passiveIncome)}</b></div>
       <div><span>Expenses</span><b class="red">-${fmt(p.expenses)}</b></div>
       <div class="cf-row"><span>Monthly cash flow</span><b class="${cashflow >= 0 ? 'green' : 'red'}">${cashflow >= 0 ? '+' : ''}${fmt(cashflow)}</b></div>
+      <div><span>Career</span><b>${careerInfo(p).name}</b></div>
       <div><span>Cash</span><b>${fmt(p.cash)}</b></div>
       <div><span>Net worth</span><b>${fmt(netWorth(p))}</b></div>
       <div><span>Loans</span><b>${fmt(p.loans.reduce((s, l) => s + l.principal, 0))}</b></div>
@@ -1048,6 +1210,7 @@ function openPortfolio() {
     <h3>Loans</h3>
     ${loansHtml}
     <div class="card-actions2">
+      <button class="btn header-btn" data-act="trade">Trade with Players</button>
       <button class="btn ok" data-act="loan">Borrow $1000</button>
       <button class="btn cancel" data-act="close">Close</button>
     </div>`;
@@ -1077,6 +1240,7 @@ function openPortfolio() {
   };
   body.querySelectorAll('.sell').forEach(b => b.addEventListener('click', () => onSell(+b.dataset.sell)));
   body.querySelectorAll('.repay').forEach(b => b.addEventListener('click', () => onRepay(+b.dataset.repay)));
+  body.querySelector('[data-act="trade"]').addEventListener('click', openTradeView);
   body.querySelector('[data-act="loan"]').addEventListener('click', () => {
     if (p.loans.length >= 3) { log('Bank maxed out: you already have 3 loans.'); return; }
     takeLoan(p);
@@ -1084,6 +1248,142 @@ function openPortfolio() {
     log(`${p.name} borrows $1,000 from the bank (+${fmt(80)}/mo interest).`);
     openPortfolio();
   });
+  body.querySelector('[data-act="close"]').addEventListener('click', () => hide('card-modal'));
+}
+
+/* ---------------- player-to-player trading ---------------- */
+/* Would an AI buyer accept this price? Keeps a liquidity reserve and checks value. */
+function aiBuysAt(buyer, asset, price) {
+  if (asset.monthly <= 0) return false;
+  const reserve = Math.max(200, Math.min(2500, Math.round(buyer.expenses * 0.3)));
+  if (buyer.cash < price + reserve) return false;
+  if (price / asset.monthly > 90) return false;
+  if (price > asset.value * 1.5) return false;
+  return true;
+}
+
+/* Would an AI seller accept this price? Only for a decent premium over market value. */
+function aiSellsAt(seller, asset, price) {
+  return price >= asset.value * aiSellThreshold();
+}
+
+function transferAsset(seller, buyer, asset, price) {
+  seller.cash += price;
+  seller.passiveIncome -= asset.monthly;
+  seller.assets = seller.assets.filter(a => a !== asset);
+  buyer.cash -= price;
+  buyer.passiveIncome += asset.monthly;
+  buyer.assets.push({ name: asset.name, cat: asset.cat, value: asset.value, monthly: asset.monthly });
+  sfx.coin();
+  log(`${buyer.name} buys ${asset.name} from ${seller.name} for ${fmt(price)}.`);
+  saveGame();
+  renderAll();
+}
+
+async function offerBuy(p, asset, seller, price) {
+  if (p.cash < price) { log(`${p.name} cannot afford that trade.`); return; }
+  if (seller.ai) {
+    if (aiSellsAt(seller, asset, price)) {
+      transferAsset(seller, p, asset, price);
+    } else {
+      log(`${seller.name} declines the offer for ${asset.name}.`);
+    }
+  } else {
+    const yes = await ask('Trade Offer', `${p.name} bids to buy <b>${asset.name}</b> from ${seller.name} for ${fmt(price)}. Accept?`, [
+      { v: 1, label: 'Accept', cls: 'ok' },
+      { v: 0, label: 'Decline', cls: 'cancel' }]);
+    if (yes) transferAsset(seller, p, asset, price);
+    else log(`${seller.name} declines the offer.`);
+  }
+}
+
+async function offerSell(p, asset, buyer, price) {
+  if (buyer.ai) {
+    if (aiBuysAt(buyer, asset, price) && buyer.cash >= price) {
+      transferAsset(p, buyer, asset, price);
+    } else {
+      log(`${buyer.name} is not interested in ${asset.name}.`);
+    }
+  } else {
+    const yes = await ask('Trade Offer', `${p.name} offers <b>${asset.name}</b> to ${buyer.name} for ${fmt(price)}. Accept?`, [
+      { v: 1, label: 'Accept', cls: 'ok' },
+      { v: 0, label: 'Decline', cls: 'cancel' }]);
+    if (yes) transferAsset(p, buyer, asset, price);
+    else log(`${buyer.name} declines the offer.`);
+  }
+}
+
+async function openOfferForm(p, asset, others) {
+  const html = `
+    <h2>Offer ${asset.name}</h2>
+    <div class="card-desc">Sell this asset to another player — you set the price.</div>
+    <div class="set-group">
+      <label class="set-label" for="trade-buyer">Buyer</label>
+      <select id="trade-buyer" class="set-select">${others.map(o => `<option value="${o.name}">${o.name}</option>`).join('')}</select>
+    </div>
+    <div class="set-group">
+      <label class="set-label" for="trade-price">Price</label>
+      <input id="trade-price" type="number" class="set-select" min="0" value="${asset.value}">
+    </div>`;
+  const action = await ask('Trade', html, [
+    { v: 'send', label: 'Send Offer', cls: 'ok' },
+    { v: 'back', label: 'Back', cls: 'cancel' }]);
+  if (action === 'send') {
+    const buyer = game.players.find(x => x.name === $('trade-buyer').value);
+    const price = Math.max(0, Math.round(parseFloat($('trade-price').value) || 0));
+    if (buyer) await offerSell(p, asset, buyer, price);
+  }
+  openTradeView();
+}
+
+function openTradeView() {
+  const p = currentPlayer();
+  const others = game.players.filter(x => x !== p && !x.bankrupt);
+  if (!others.length) {
+    $('card-body').innerHTML = `<h2>Trade with Players</h2><div class="empty">No other active players to trade with.</div>`;
+    show('card-modal');
+    return;
+  }
+  const mine = p.assets.length
+    ? p.assets.map(a => `
+      <div class="prow2">
+        <div class="p2name"><b>${a.name}</b><span>+${fmt(a.monthly)}/mo</span></div>
+        <div class="p2val">${fmt(a.value)}</div>
+        <button class="btn small ok" data-offer="${a.name}">Offer</button>
+      </div>`).join('')
+    : '<div class="empty">You own no assets to trade.</div>';
+  const theirs = others.map(o => `
+    <h3>${o.name} <span class="hint">cash ${fmt(o.cash)}</span></h3>
+    ${o.assets.length
+      ? o.assets.map(a => `
+        <div class="prow2">
+          <div class="p2name"><b>${a.name}</b><span>${a.cat} · +${fmt(a.monthly)}/mo</span></div>
+          <div class="p2val">${fmt(a.value)}</div>
+          <button class="btn small ok" data-buy="${o.name}|${a.name}">Buy</button>
+        </div>`).join('')
+      : '<div class="empty">No assets.</div>'}`).join('');
+  $('card-body').innerHTML = `
+    <h2>Trade with Players</h2>
+    <h3>Your assets — offer to sell</h3>
+    ${mine}
+    <h3>Buy from others</h3>
+    ${theirs}
+    <div class="card-actions2">
+      <button class="btn cancel" data-act="close">Close</button>
+    </div>`;
+  show('card-modal');
+  const body = $('card-body');
+  body.querySelectorAll('[data-offer]').forEach(b => b.addEventListener('click', () => {
+    const asset = p.assets.find(a => a.name === b.dataset.offer);
+    if (asset) openOfferForm(p, asset, others);
+  }));
+  body.querySelectorAll('[data-buy]').forEach(b => b.addEventListener('click', async () => {
+    const [sname, aname] = b.dataset.buy.split('|');
+    const seller = game.players.find(x => x.name === sname);
+    const asset = seller.assets.find(a => a.name === aname);
+    if (seller && asset) await offerBuy(p, asset, seller, asset.value);
+    openTradeView();
+  }));
   body.querySelector('[data-act="close"]').addEventListener('click', () => hide('card-modal'));
 }
 
