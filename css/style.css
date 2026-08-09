@@ -164,6 +164,20 @@ main {
 }
 .token.is-current { z-index: 6; box-shadow: 0 0 0 3px var(--gold), 0 3px 6px rgba(0,0,0,0.5); }
 
+/* color-blind friendly token shapes */
+.token.shape-1, .token.shape-2, .token.shape-3, .token.shape-4, .token.shape-5 {
+  border-radius: 0; border: none; box-shadow: none;
+  filter: drop-shadow(0 0 0 2px #fff) drop-shadow(0 3px 6px rgba(0,0,0,0.5));
+}
+.token.shape-1 { clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.token.shape-2 { clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%); }
+.token.shape-3 { clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+.token.shape-4 { clip-path: polygon(50% 0%, 90% 20%, 100% 60%, 75% 100%, 25% 100%, 0% 60%, 10% 20%); }
+.token.shape-5 { clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%); }
+.token.shape-1.is-current, .token.shape-2.is-current, .token.shape-3.is-current, .token.shape-4.is-current, .token.shape-5.is-current {
+  filter: drop-shadow(0 0 0 2px #fff) drop-shadow(0 0 0 4px var(--gold)) drop-shadow(0 3px 6px rgba(0,0,0,0.5));
+}
+
 /* center dashboard */
 #center {
   position: absolute;
@@ -465,6 +479,36 @@ main {
 .p2val { font-weight: 700; font-size: 0.9rem; }
 .empty { color: var(--muted); font-size: 0.85rem; padding: 8px 2px; }
 .hint { color: var(--muted); font-size: 0.72rem; font-weight: 400; }
+
+/* portfolio cash-flow chart */
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 96px;
+  padding: 6px 2px 2px;
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: 8px;
+}
+.chart-col {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 100%;
+  min-width: 4px;
+}
+.chart-bar { width: 50%; border-radius: 2px 2px 0 0; }
+.chart-bar.passive { background: #2ecc71; }
+.chart-bar.expense { background: #e74c3c; }
+.chart-legend { display: flex; gap: 14px; margin-top: 6px; font-size: 0.72rem; color: var(--muted); }
+.chart-legend .lg { display: inline-flex; align-items: center; gap: 4px; }
+.chart-legend .lg::before { content: ''; width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.chart-legend .lg.passive::before { background: #2ecc71; }
+.chart-legend .lg.expense::before { background: #e74c3c; }
+
+.cb-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; cursor: pointer; }
+.cb-toggle input { width: auto; accent-color: var(--gold); }
 
 .win-avatar {
   width: 70px; height: 70px;

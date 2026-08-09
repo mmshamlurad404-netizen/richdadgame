@@ -6,7 +6,38 @@
 const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const fmt = (n) => '$' + Math.round(n).toLocaleString('fa-IR');
-const rand = (n) => Math.floor(Math.random() * n);
+
+/* اعداد تصادفی دانه‌دار قدرت چالش روزانه را می‌دهد: همان تاریخ یعنی همان ترتیب
+   دسته‌کارت‌ها و تاس برای همه‌ی بازیکن‌های آن روز. */
+function hashString(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function todaySeed() {
+  const d = new Date();
+  return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+}
+
+let _rng = Math.random;
+const useSeededRng = (seed) => { _rng = mulberry32(hashString(String(seed))); };
+const useRandomRng = () => { _rng = Math.random; };
+
+const rand = (n) => Math.floor(_rng() * n);
 const pick = (arr) => arr[rand(arr.length)];
 const shuffle = (arr) => {
   const a = arr.slice();
@@ -172,11 +203,12 @@ function startGame() {
     });
   });
   if (players.length < 1) players.length = 1;
-  beginGame(players, $('ai-difficulty').value);
+  const dailyEl = $('daily-challenge');
+  beginGame(players, $('ai-difficulty').value, !!(dailyEl && dailyEl.checked));
 }
 
 /* ---------------- چرخه بازی ---------------- */
-function beginGame(players, difficulty) {
+function beginGame(players, difficulty, daily) {
   const p = players.map((cfg, i) => {
     const job = JOBS.find(j => j.id === cfg.jobId);
     return {
@@ -195,6 +227,7 @@ function beginGame(players, difficulty) {
       expenseItems: [{ name: LIVING_EXPENSE_NAME, monthly: job.expenses }],
       assets: [],
       loans: [],
+      history: [],
       position: 0,
       downsized: 0,
       doubleRoll: false,
@@ -208,11 +241,16 @@ function beginGame(players, difficulty) {
     };
   });
 
+  const seed = daily ? todaySeed() : null;
+  if (seed) useSeededRng(seed);
+
   game = {
     players: p,
     current: 0,
     turn: 1,
     difficulty: difficulty || 'medium',
+    daily: !!daily,
+    seed: seed,
     winner: null,
     decks: {
       oppByCat: {
@@ -241,12 +279,17 @@ function beginGame(players, difficulty) {
   currentPlayer().isHuman ? promptStart() : takeTurn();
 }
 
+function cbTokens() {
+  try { return localStorage.getItem('mq_cb') === '1'; } catch (e) { return false; }
+}
+
 function buildTokens(players) {
   const tlayer = $('tokens');
   tlayer.innerHTML = '';
-  players.forEach((pl) => {
+  const shapes = cbTokens();
+  players.forEach((pl, i) => {
     const t = document.createElement('div');
-    t.className = 'token';
+    t.className = 'token' + (shapes ? ' shape-' + (i % 6) : '');
     t.id = 'token-' + pl.color.replace('#', '');
     t.style.background = pl.color;
     t.innerHTML = '<span>' + pl.name.charAt(0).toUpperCase() + '</span>';
@@ -269,6 +312,7 @@ function saveGame() {
         passiveIncome: p.passiveIncome,
         expenses: p.expenses, baseExpenses: p.baseExpenses,
         expenseItems: p.expenseItems, assets: p.assets, loans: p.loans,
+        history: p.history,
         position: p.position, downsized: p.downsized, doubleRoll: p.doubleRoll,
         escaped: p.escaped, bankrupt: p.bankrupt, totalPassiveEarned: p.totalPassiveEarned,
         totalTaxPaid: p.totalTaxPaid, totalCharity: p.totalCharity,
@@ -277,6 +321,8 @@ function saveGame() {
       current: game.current,
       turn: game.turn,
       difficulty: game.difficulty,
+      daily: game.daily,
+      seed: game.seed,
       decks: {
         oppByCat: Object.fromEntries(Object.entries(decks.oppByCat).map(([k, v]) => [k, v.map(c => OPPORTUNITY_CARDS.indexOf(c))])),
         market: decks.market.map(c => MARKET_CARDS.indexOf(c)),
@@ -314,6 +360,7 @@ function resumeGame() {
       passiveIncome: cfg.passiveIncome,
       expenses: cfg.expenses, baseExpenses: cfg.baseExpenses,
       expenseItems: cfg.expenseItems, assets: cfg.assets, loans: cfg.loans,
+      history: cfg.history || [],
       position: cfg.position, downsized: cfg.downsized, doubleRoll: cfg.doubleRoll,
       escaped: cfg.escaped, bankrupt: !!cfg.bankrupt, totalPassiveEarned: cfg.totalPassiveEarned,
       totalTaxPaid: cfg.totalTaxPaid, totalCharity: cfg.totalCharity,
@@ -326,6 +373,8 @@ function resumeGame() {
     current: s.current,
     turn: s.turn,
     difficulty: s.difficulty || 'medium',
+    daily: !!s.daily,
+    seed: s.seed || null,
     winner: null,
     decks: {
       oppByCat: {
@@ -341,6 +390,8 @@ function resumeGame() {
     },
     log: [],
   };
+
+  if (game.daily && game.seed) useSeededRng(game.seed);
 
   // هرگز روی بازیکن ورشکسته ادامه نده
   if (game.players[game.current].bankrupt && game.players.some(x => !x.bankrupt)) {
@@ -381,7 +432,7 @@ async function takeTurn() {
   $('roll-btn').disabled = true;
   renderAll();
   if (p.ai) {
-    await sleep(700);
+    await sleep(aiDelay());
     if (aiDifficultyLevel() === 'hard') aiManagePortfolio(p);
   }
 
@@ -413,8 +464,16 @@ async function takeTurn() {
 }
 
 async function roll(p) {
-  const d1 = rand(6) + 1;
-  const d2 = rand(6) + 1;
+  let d1, d2;
+  if (game.daily && game.seed) {
+    // تاس چالش روزانه بر اساس (نوبت، بازیکن) دانه می‌خورد تا تکرار همان بازی دوباره رخ دهد
+    const r = mulberry32(hashString(game.seed + ':' + game.turn + ':' + p.color));
+    d1 = Math.floor(r() * 6) + 1;
+    d2 = Math.floor(r() * 6) + 1;
+  } else {
+    d1 = rand(6) + 1;
+    d2 = rand(6) + 1;
+  }
   const sum = d1 + d2;
   renderDice(d1, d2);
   sfx.roll();
@@ -482,6 +541,11 @@ async function onPayday(p) {
   if (p.cash < 0) await handleDebt(p);
 
   const escaped = checkEscape(p);
+
+  // ثبت شکاف درآمد غیرفعال در برابر هزینه‌ها برای نمودار کیف دارایی‌ها
+  p.history = p.history || [];
+  p.history.push({ passive: p.passiveIncome, expenses: p.expenses });
+  if (p.history.length > 24) p.history.shift();
 
   const html =
     `<div class="st">حقوق +${fmt(salary)}</div>` +
@@ -639,11 +703,19 @@ function scaleIncome(p, n) {
   return Math.max(20, Math.round(n * factor));
 }
 
-function takeLoan(p) {
-  p.cash += 1000;
-  p.loans.push({ principal: 1000, monthly: 80 });
+const LOAN_OPTIONS = [
+  { amount: 500,  monthly: 40,  label: '۵۰۰ دلار · -۴۰/ماه' },
+  { amount: 1000, monthly: 80,  label: '۱۰۰۰ دلار · -۸۰/ماه' },
+  { amount: 2000, monthly: 160, label: '۲۰۰۰ دلار · -۱۶۰/ماه' },
+];
+
+function takeLoan(p, amount) {
+  const opt = LOAN_OPTIONS.find(o => o.amount === amount) || LOAN_OPTIONS[1];
+  p.cash += opt.amount;
+  p.loans.push({ principal: opt.amount, monthly: opt.monthly });
   recalcExpenses(p);
   saveGame();
+  return opt;
 }
 
 function repayLoan(p, loan) {
@@ -745,6 +817,15 @@ async function onOpportunity(p) {
 /* ---------------- سختی هوش مصنوعی ---------------- */
 function aiDifficultyLevel() {
   return (game && game.difficulty) || 'medium';
+}
+
+/* سرعت نوبت هوش مصنوعی: بازیکن‌های آسان آرام فکر می‌کنند، سخت‌ها سریع عمل می‌کنند. */
+function aiDelay() {
+  switch (aiDifficultyLevel()) {
+    case 'easy': return 1200;
+    case 'hard': return 400;
+    default: return 700;
+  }
 }
 
 function aiSellThreshold() {
@@ -1191,6 +1272,17 @@ function openPortfolio() {
         <div class="p2val red">-${fmt(loanInterest)}</div>
       </div>` : '');
 
+  const hist = (p.history || []).slice(-12);
+  const histMax = Math.max(1, ...(p.history || []).map(h => Math.max(h.passive, h.expenses)));
+  const histHtml = hist.length
+    ? `<div class="chart" data-chart>${hist.map(h => `
+        <div class="chart-col" title="غیرفعال ${fmt(h.passive)}/ماه · هزینه ${fmt(h.expenses)}/ماه">
+          <div class="chart-bar passive" style="height:${Math.round((h.passive / histMax) * 100)}%"></div>
+          <div class="chart-bar expense" style="height:${Math.round((h.expenses / histMax) * 100)}%"></div>
+        </div>`).join('')}</div>
+       <div class="chart-legend"><span class="lg passive">غیرفعال</span><span class="lg expense">هزینه</span></div>`
+    : '<div class="empty">هنوز سابقه‌ای نیست — روی حقوق بیا تا نمودار جریان نقدی ساخته شود.</div>';
+
   $('card-body').innerHTML = `
     <h2>کیف دارایی‌های ${p.name}</h2>
     <div class="pstats">
@@ -1209,9 +1301,11 @@ function openPortfolio() {
     ${assetsHtml}
     <h3>وام‌ها</h3>
     ${loansHtml}
+    <h3>تاریخچه جریان نقدی <span class="hint">غیرفعال در برابر هزینه در هر حقوق</span></h3>
+    ${histHtml}
     <div class="card-actions2">
       <button class="btn header-btn" data-act="trade">معامله با بازیکن‌ها</button>
-      <button class="btn ok" data-act="loan">وام ۱۰۰۰ دلاری بگیر</button>
+      <button class="btn ok" data-act="loan">وام بگیر</button>
       <button class="btn cancel" data-act="close">بستن</button>
     </div>`;
   show('card-modal');
@@ -1241,12 +1335,19 @@ function openPortfolio() {
   body.querySelectorAll('.sell').forEach(b => b.addEventListener('click', () => onSell(+b.dataset.sell)));
   body.querySelectorAll('.repay').forEach(b => b.addEventListener('click', () => onRepay(+b.dataset.repay)));
   body.querySelector('[data-act="trade"]').addEventListener('click', openTradeView);
-  body.querySelector('[data-act="loan"]').addEventListener('click', () => {
+  body.querySelector('[data-act="loan"]').addEventListener('click', async () => {
     if (p.loans.length >= 3) { log('بانک سقف دارد: همین حالا ۳ وام داری.'); return; }
-    takeLoan(p);
-    sfx.buy();
-    log(`${p.name} از بانک وام ۱٬۰۰۰ دلاری می‌گیرد (+${fmt(80)}/ماه سود).`);
-    openPortfolio();
+    const choice = await showInfo('وام بانکی',
+      '<div class="card-desc">مبلغ وام را انتخاب کن. سود ماهانه تا زمان تسویه پرداخت می‌شود.</div>' +
+      LOAN_OPTIONS.map(o => `<div class="st"><span>${o.label}</span><b class="red">${fmt(o.monthly)}/ماه</b></div>`).join(''),
+      [...LOAN_OPTIONS.map(o => ({ v: String(o.amount), label: o.label, cls: 'ok' })),
+       { v: 'cancel', label: 'انصراف', cls: 'cancel' }]);
+    if (choice !== 'cancel') {
+      const opt = takeLoan(p, +choice);
+      sfx.buy();
+      log(`${p.name} از بانک وام ${fmt(opt.amount)} دلاری می‌گیرد (-${fmt(opt.monthly)}/ماه سود).`);
+      openPortfolio();
+    }
   });
   body.querySelector('[data-act="close"]').addEventListener('click', () => hide('card-modal'));
 }
@@ -1475,6 +1576,14 @@ function init() {
     const n = $('players-list').children.length;
     if (n > 1) buildSetupRows(n - 1);
   });
+  const cbSel = $('cb-tokens');
+  if (cbSel) {
+    try { cbSel.checked = localStorage.getItem('mq_cb') === '1'; } catch (e) { /* بدون حافظه */ }
+    cbSel.addEventListener('change', () => {
+      try { localStorage.setItem('mq_cb', cbSel.checked ? '1' : '0'); } catch (e) { /* بدون حافظه */ }
+      if (game) buildTokens(game.players);
+    });
+  }
   setupResume();
   openSetup();
 }
