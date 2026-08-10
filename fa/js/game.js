@@ -204,11 +204,12 @@ function startGame() {
   });
   if (players.length < 1) players.length = 1;
   const dailyEl = $('daily-challenge');
-  beginGame(players, $('ai-difficulty').value, !!(dailyEl && dailyEl.checked));
+  const modeEl = $('game-mode');
+  beginGame(players, $('ai-difficulty').value, !!(dailyEl && dailyEl.checked), modeEl ? modeEl.value : 'race');
 }
 
 /* ---------------- چرخه بازی ---------------- */
-function beginGame(players, difficulty, daily) {
+function beginGame(players, difficulty, daily, mode) {
   const p = players.map((cfg, i) => {
     const job = JOBS.find(j => j.id === cfg.jobId);
     return {
@@ -253,6 +254,8 @@ function beginGame(players, difficulty, daily) {
     daily: !!daily,
     seed: seed,
     winner: null,
+    mode: mode || 'race',
+    maxTurns: 40,
     decks: {
       oppByCat: {
         realestate: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'realestate')),
@@ -327,6 +330,8 @@ function saveGame() {
       difficulty: game.difficulty,
       daily: game.daily,
       seed: game.seed,
+      mode: game.mode,
+      maxTurns: game.maxTurns,
       decks: {
         oppByCat: Object.fromEntries(Object.entries(decks.oppByCat).map(([k, v]) => [k, v.map(c => OPPORTUNITY_CARDS.indexOf(c))])),
         market: decks.market.map(c => MARKET_CARDS.indexOf(c)),
@@ -383,6 +388,8 @@ function resumeGame() {
     daily: !!s.daily,
     seed: s.seed || null,
     winner: null,
+    mode: s.mode || 'race',
+    maxTurns: s.maxTurns || 40,
     decks: {
       oppByCat: {
         realestate: s.decks.oppByCat.realestate.map(i => cardAt(OPPORTUNITY_CARDS, i)).filter(Boolean),
@@ -428,9 +435,14 @@ function setupResume() {
 }
 
 function promptStart() {
+  const goal = game.mode === 'turns'
+    ? `بعد از ${game.maxTurns.toLocaleString('fa-IR')} نوبت، بیشترین دارایی خالص برنده است.`
+    : game.mode === 'networth'
+      ? `اولین بازیکنی که به ${fmt(NET_WORTH_GOAL)} دارایی خالص برسد برنده است.`
+      : `درآمد غیرفعالی <b>بیشتر از هزینه‌ها</b> بسازید تا از دایره فقر فرار کنید.`;
   showInfo(`نوبت توست، ${currentPlayer().name}!`,
     `شما یک <b>${currentPlayer().job.name}</b> هستید و ${fmt(currentPlayer().salary)}/ماه درآمد دارید و ${fmt(currentPlayer().expenses)} هزینه.<br><br>` +
-    `مأموریت شما: <b>درآمد غیرفعالی بیشتر از هزینه‌ها</b> بسازید تا از دایره فقر فرار کنید.<br><br>تاس بریزید!`,
+    `مأموریت شما: ${goal}<br><br>تاس بریزید!`,
     ['تاس بینداز'], true);
 }
 
@@ -456,6 +468,11 @@ async function takeTurn() {
   } while (game.players[game.current].bankrupt && game.players.some(x => !x.bankrupt) && guard++ < game.players.length);
   game.turn++;
   renderAll();
+
+  if (checkModeWin()) {
+    await endGame(game.winner, game.winnerReason);
+    return;
+  }
 
   const next = currentPlayer();
   log(`نوبت ${game.turn}: حرکت ${next.name} (${next.job.name}).`);
@@ -523,10 +540,34 @@ async function land(p) {
 function checkEscape(p) {
   if (p.passiveIncome > p.expenses) {
     p.escaped = true;
-    game.winner = p;
+    if (game.mode === 'race' || !game.mode) game.winner = p;
     return true;
   }
   return false;
+}
+
+const NET_WORTH_GOAL = 100000;
+
+/* حالت‌های برنده شدن غیر از مسابقه کلاسیک: نوبت و هدف دارایی خالص */
+function checkModeWin() {
+  if (game.mode === 'turns' && game.turn > game.maxTurns) {
+    const alive = game.players.filter(x => !x.bankrupt);
+    if (alive.length) {
+      alive.sort((a, b) => netWorth(b) - netWorth(a));
+      game.winner = alive[0];
+      game.winnerReason = 'turns';
+    }
+    return game.winner;
+  }
+  if (game.mode === 'networth') {
+    const champ = game.players.find(x => !x.bankrupt && netWorth(x) >= NET_WORTH_GOAL);
+    if (champ) {
+      game.winner = champ;
+      game.winnerReason = 'networth';
+    }
+    return game.winner;
+  }
+  return null;
 }
 
 async function onPayday(p) {
@@ -584,7 +625,7 @@ async function onPayday(p) {
     log(`${p.name} حقوق گرفت: نقدینگی ${fmt(p.cash)}.`);
   }
 
-  if (escaped) await endGame(p);
+  if (escaped && (game.mode === 'race' || !game.mode)) await endGame(p);
 }
 
 async function handleDebt(p) {
@@ -1224,10 +1265,17 @@ async function endGame(w, reason) {
   showConfetti();
   const winnerHtml = `
     <div class="win-avatar" style="background:${w.color}">${w.name.charAt(0).toUpperCase()}</div>
-    <h2>${w.name} ${reason === 'last' ? 'آخرین بازمانده است!' : 'از دایره فقر فرار کرد!'}</h2>
+    <h2>${reason === 'last' ? `${w.name} آخرین بازمانده است!`
+      : reason === 'turns' ? `${w.name} با دارایی خالص برنده شد!`
+      : reason === 'networth' ? `${w.name} به هدف دارایی خالص رسید!`
+      : `${w.name} از دایره فقر فرار کرد!`}</h2>
     <p>${reason === 'last'
       ? `همه رقیب‌ها ورشکست شدند. ${w.name} در دایره فقر زنده ماند.`
-      : `${w.name} <b>${fmt(w.passiveIncome)}/ماه</b> درآمد غیرفعال ساخت — کافی است <b>${fmt(w.expenses)}/ماه</b> هزینه را پوشش دهد.`}</p>
+      : reason === 'turns'
+        ? `بعد از ${game.maxTurns.toLocaleString('fa-IR')} نوبت، ${w.name} بیشترین دارایی خالص را روی صفحه دارد.`
+        : reason === 'networth'
+          ? `${w.name} قبل از بقیه از <b>${fmt(NET_WORTH_GOAL)}</b> دارایی خالص گذشت.`
+          : `${w.name} <b>${fmt(w.passiveIncome)}/ماه</b> درآمد غیرفعال ساخت — کافی است <b>${fmt(w.expenses)}/ماه</b> هزینه را پوشش دهد.`}</p>
     <div class="st">ارزش خالص: <b>${fmt(netWorth(w))}</b> · دارایی‌ها: <b>${w.assets.length.toLocaleString('fa-IR')}</b> · نقدینگی: <b>${fmt(w.cash)}</b></div>
     <div class="tip">«${pick(WIN_TIPS)}»</div>
     <h3>جدول امتیازات</h3>
@@ -1282,9 +1330,20 @@ function renderCenter() {
     <div class="cnet">ارزش خالص <b>${fmt(netWorth(p))}</b></div>
     ${p.downsized > 0 ? `<div class="cflag red">بیکار (${p.downsized.toLocaleString('fa-IR')} حقوق دیگر)</div>` : ''}
     ${game.event ? `<div class="cflag event-flag">${game.event.title}${game.event.turnsLeft != null ? ` (${game.event.turnsLeft.toLocaleString('fa-IR')} حقوق دیگر)` : ''}</div>` : ''}
-    <div class="cgoal">هدف: درآمد غیرفعال &gt; ${fmt(p.expenses)} هزینه
-      <div class="bar"><div class="barfill" style="width:${Math.min(100, Math.round(p.expenses ? (p.passiveIncome / p.expenses) * 100 : 0))}%"></div></div>
-      <span class="bar-cap">${fmt(p.passiveIncome)} / ${fmt(p.expenses)}</span>
+    <div class="cgoal">${game.mode === 'turns'
+      ? `هدف: بیشترین دارایی خالص بعد از ${game.maxTurns.toLocaleString('fa-IR')} نوبت (نوبت ${game.turn.toLocaleString('fa-IR')}/${game.maxTurns.toLocaleString('fa-IR')})`
+      : game.mode === 'networth'
+        ? `هدف: اولین نفر با دارایی خالص ${fmt(NET_WORTH_GOAL)}`
+        : `هدف: درآمد غیرفعال &gt; ${fmt(p.expenses)} هزینه`}
+      <div class="bar"><div class="barfill" style="width:${Math.min(100, Math.round(
+        game.mode === 'turns' ? (game.turn / game.maxTurns) * 100
+        : game.mode === 'networth' ? (netWorth(p) / NET_WORTH_GOAL) * 100
+        : p.expenses ? (p.passiveIncome / p.expenses) * 100 : 0))}%"></div></div>
+      <span class="bar-cap">${game.mode === 'turns'
+        ? `${game.turn.toLocaleString('fa-IR')}/${game.maxTurns.toLocaleString('fa-IR')} نوبت`
+        : game.mode === 'networth'
+          ? `${fmt(netWorth(p))} / ${fmt(NET_WORTH_GOAL)}`
+          : `${fmt(p.passiveIncome)} / ${fmt(p.expenses)}`}</span>
     </div>`;
 }
 

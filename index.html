@@ -96,6 +96,16 @@
     </div>
 
     <div class="setup-row">
+      <label class="difficulty-tag" for="game-mode">Win condition:</label>
+      <select id="game-mode" class="setup-select">
+        <option value="race" selected>Escape the Rat Race</option>
+        <option value="turns">Richest after 40 turns</option>
+        <option value="networth">First to $100,000 net worth</option>
+      </select>
+      <span class="hint">Race: first to passive income &gt; expenses. Turns: biggest net worth when turn 40 ends. Net worth: first player to pass the goal.</span>
+    </div>
+
+    <div class="setup-row">
       <label class="difficulty-tag" for="daily-challenge">Daily Challenge:</label>
       <label class="cb-toggle"><input type="checkbox" id="daily-challenge"> Same seeded decks &amp; dice as everyone playing today</label>
     </div>

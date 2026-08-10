@@ -204,11 +204,12 @@ function startGame() {
   });
   if (players.length < 1) players.length = 1;
   const dailyEl = $('daily-challenge');
-  beginGame(players, $('ai-difficulty').value, !!(dailyEl && dailyEl.checked));
+  const modeEl = $('game-mode');
+  beginGame(players, $('ai-difficulty').value, !!(dailyEl && dailyEl.checked), modeEl ? modeEl.value : 'race');
 }
 
 /* ---------------- game lifecycle ---------------- */
-function beginGame(players, difficulty, daily) {
+function beginGame(players, difficulty, daily, mode) {
   const p = players.map((cfg, i) => {
     const job = JOBS.find(j => j.id === cfg.jobId);
     return {
@@ -253,6 +254,8 @@ function beginGame(players, difficulty, daily) {
     daily: !!daily,
     seed: seed,
     winner: null,
+    mode: mode || 'race',
+    maxTurns: 40,
     decks: {
       oppByCat: {
         realestate: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'realestate')),
@@ -327,6 +330,8 @@ function saveGame() {
       difficulty: game.difficulty,
       daily: game.daily,
       seed: game.seed,
+      mode: game.mode,
+      maxTurns: game.maxTurns,
       decks: {
         oppByCat: Object.fromEntries(Object.entries(decks.oppByCat).map(([k, v]) => [k, v.map(c => OPPORTUNITY_CARDS.indexOf(c))])),
         market: decks.market.map(c => MARKET_CARDS.indexOf(c)),
@@ -383,6 +388,8 @@ function resumeGame() {
     daily: !!s.daily,
     seed: s.seed || null,
     winner: null,
+    mode: s.mode || 'race',
+    maxTurns: s.maxTurns || 40,
     decks: {
       oppByCat: {
         realestate: s.decks.oppByCat.realestate.map(i => cardAt(OPPORTUNITY_CARDS, i)).filter(Boolean),
@@ -428,9 +435,14 @@ function setupResume() {
 }
 
 function promptStart() {
+  const goal = game.mode === 'turns'
+    ? `Biggest net worth wins after ${game.maxTurns} turns.`
+    : game.mode === 'networth'
+      ? `First player to reach ${fmt(NET_WORTH_GOAL)} net worth wins.`
+      : `Build <b>passive income greater than expenses</b> to escape the Rat Race.`;
   showInfo(`Your turn, ${currentPlayer().name}!`,
     `You are a <b>${currentPlayer().job.name}</b> earning ${fmt(currentPlayer().salary)}/month with ${fmt(currentPlayer().expenses)} in expenses.<br><br>` +
-    `Your mission: build <b>passive income greater than expenses</b> to escape the Rat Race.<br><br>Roll the dice!`,
+    `Your mission: ${goal}<br><br>Roll the dice!`,
     ['Roll Dice'], true);
 }
 
@@ -456,6 +468,11 @@ async function takeTurn() {
   } while (game.players[game.current].bankrupt && game.players.some(x => !x.bankrupt) && guard++ < game.players.length);
   game.turn++;
   renderAll();
+
+  if (checkModeWin()) {
+    await endGame(game.winner, game.winnerReason);
+    return;
+  }
 
   const next = currentPlayer();
   log(`Turn ${game.turn}: ${next.name}'s move (${next.job.name}).`);
@@ -523,10 +540,34 @@ async function land(p) {
 function checkEscape(p) {
   if (p.passiveIncome > p.expenses) {
     p.escaped = true;
-    game.winner = p;
+    if (game.mode === 'race' || !game.mode) game.winner = p;
     return true;
   }
   return false;
+}
+
+const NET_WORTH_GOAL = 100000;
+
+/* Win modes other than the classic race: turns and net-worth goals. */
+function checkModeWin() {
+  if (game.mode === 'turns' && game.turn > game.maxTurns) {
+    const alive = game.players.filter(x => !x.bankrupt);
+    if (alive.length) {
+      alive.sort((a, b) => netWorth(b) - netWorth(a));
+      game.winner = alive[0];
+      game.winnerReason = 'turns';
+    }
+    return game.winner;
+  }
+  if (game.mode === 'networth') {
+    const champ = game.players.find(x => !x.bankrupt && netWorth(x) >= NET_WORTH_GOAL);
+    if (champ) {
+      game.winner = champ;
+      game.winnerReason = 'networth';
+    }
+    return game.winner;
+  }
+  return null;
 }
 
 async function onPayday(p) {
@@ -584,7 +625,7 @@ async function onPayday(p) {
     log(`${p.name} gets paid: cash ${fmt(p.cash)}.`);
   }
 
-  if (escaped) await endGame(p);
+  if (escaped && (game.mode === 'race' || !game.mode)) await endGame(p);
 }
 
 async function handleDebt(p) {
@@ -1224,10 +1265,17 @@ async function endGame(w, reason) {
   showConfetti();
   const winnerHtml = `
     <div class="win-avatar" style="background:${w.color}">${w.name.charAt(0).toUpperCase()}</div>
-    <h2>${w.name} ${reason === 'last' ? 'is the last one standing!' : 'escaped the Rat Race!'}</h2>
+    <h2>${reason === 'last' ? `${w.name} is the last one standing!`
+      : reason === 'turns' ? `${w.name} wins by net worth!`
+      : reason === 'networth' ? `${w.name} reached the net-worth goal!`
+      : `${w.name} escaped the Rat Race!`}</h2>
     <p>${reason === 'last'
       ? `All rivals went bankrupt. ${w.name} survives the Rat Race.`
-      : `${w.name} built <b>${fmt(w.passiveIncome)}/month</b> in passive income — enough to cover <b>${fmt(w.expenses)}/month</b> in expenses.`}</p>
+      : reason === 'turns'
+        ? `After ${game.maxTurns} turns, ${w.name} has the biggest net worth on the board.`
+        : reason === 'networth'
+          ? `${w.name} crossed <b>${fmt(NET_WORTH_GOAL)}</b> in net worth before anyone else.`
+          : `${w.name} built <b>${fmt(w.passiveIncome)}/month</b> in passive income — enough to cover <b>${fmt(w.expenses)}/month</b> in expenses.`}</p>
     <div class="st">Net worth: <b>${fmt(netWorth(w))}</b> · Assets: <b>${w.assets.length}</b> · Cash: <b>${fmt(w.cash)}</b></div>
     <div class="tip">"${pick(WIN_TIPS)}"</div>
     <h3>Scoreboard</h3>
@@ -1282,9 +1330,20 @@ function renderCenter() {
     <div class="cnet">Net worth <b>${fmt(netWorth(p))}</b></div>
     ${p.downsized > 0 ? `<div class="cflag red">Unemployed (${p.downsized} more paydays)</div>` : ''}
     ${game.event ? `<div class="cflag event-flag">${game.event.title}${game.event.turnsLeft != null ? ` (${game.event.turnsLeft} payday${game.event.turnsLeft === 1 ? '' : 's'} left)` : ''}</div>` : ''}
-    <div class="cgoal">Goal: passive income &gt; ${fmt(p.expenses)} expenses
-      <div class="bar"><div class="barfill" style="width:${Math.min(100, Math.round(p.expenses ? (p.passiveIncome / p.expenses) * 100 : 0))}%"></div></div>
-      <span class="bar-cap">${fmt(p.passiveIncome)} / ${fmt(p.expenses)}</span>
+    <div class="cgoal">${game.mode === 'turns'
+      ? `Goal: biggest net worth after ${game.maxTurns} turns (turn ${game.turn}/${game.maxTurns})`
+      : game.mode === 'networth'
+        ? `Goal: first to net worth ${fmt(NET_WORTH_GOAL)}`
+        : `Goal: passive income &gt; ${fmt(p.expenses)} expenses`}
+      <div class="bar"><div class="barfill" style="width:${Math.min(100, Math.round(
+        game.mode === 'turns' ? (game.turn / game.maxTurns) * 100
+        : game.mode === 'networth' ? (netWorth(p) / NET_WORTH_GOAL) * 100
+        : p.expenses ? (p.passiveIncome / p.expenses) * 100 : 0))}%"></div></div>
+      <span class="bar-cap">${game.mode === 'turns'
+        ? `${game.turn}/${game.maxTurns} turns`
+        : game.mode === 'networth'
+          ? `${fmt(netWorth(p))} / ${fmt(NET_WORTH_GOAL)}`
+          : `${fmt(p.passiveIncome)} / ${fmt(p.expenses)}`}</span>
     </div>`;
 }
 

@@ -357,7 +357,7 @@ const HOW_TO_PLAY = [
   { h: 'Bankruptcy', t: 'If you cannot cover your bills, you must fire-sale assets, restructure your debt, or retire from the game. Avoid it with an emergency fund.' },
   { h: 'Loans & Credit', t: 'Borrow from the portfolio to fund deals, but interest costs you every month. Interest-only loans are cheaper monthly yet cost a 20% premium to settle. Repaying loans raises your credit score and lowers future rates.' },
   { h: 'Global Events', t: 'Sometimes a MARKET space triggers a global event instead of a news card: recessions cut passive income for a few paydays, rallies raise asset values, rate cuts shrink loan interest. Events hit every player — good luck is shared, and so is bad luck.' },
-  { h: 'Winning', t: 'Reach passive income greater than expenses on a payday and you escape the Rat Race. The first to escape wins!' },
+  { h: 'Winning', t: 'Pick a win condition in setup. Escape the Rat Race: first to passive income greater than expenses. Richest after 40 turns: the biggest net worth when turn 40 ends wins. First to $100,000: the first player whose net worth passes the goal wins.' },
 ];
 
 const WIN_TIPS = [

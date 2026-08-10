@@ -96,6 +96,16 @@
     </div>
 
     <div class="setup-row">
+      <label class="difficulty-tag" for="game-mode">شرط برنده شدن:</label>
+      <select id="game-mode" class="setup-select">
+        <option value="race" selected>فرار از دایره فقر</option>
+        <option value="turns">ثروتمندترین بعد از ۴۰ نوبت</option>
+        <option value="networth">اولین نفر با دارایی خالص ۱۰۰٬۰۰۰ دلار</option>
+      </select>
+      <span class="hint">مسابقه: اولی که درآمد غیرفعالش از هزینه‌ها بیشتر شود. نوبت: بزرگ‌ترین دارایی خالص هنگام پایان نوبت ۴۰. دارایی خالص: اولی که به هدف برسد.</span>
+    </div>
+
+    <div class="setup-row">
       <label class="difficulty-tag" for="daily-challenge">چالش روزانه:</label>
       <label class="cb-toggle"><input type="checkbox" id="daily-challenge"> دسته‌ها و تاسِ یکسان برای همهٔ بازیکنانِ امروز</label>
     </div>
