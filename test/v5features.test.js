@@ -112,5 +112,24 @@ const b2 = loadGame(htmlDir, jsDir, { [key]: JSON.stringify(oldSave) });
 b2.document.getElementById('resume-btn').click();
 check(evalIn(b2.window, 'game.players[0].credit') === 700, 'old saves backfill credit to 700');
 
-console.log(ok ? 'V5 LOAN FEATURES OK' : 'V5 LOAN FEATURES FAIL');
+/* ================= progressive tax brackets ================= */
+check(evalIn(window, `TAX_BRACKETS.length === 4`), 'four progressive tax brackets defined');
+check(evalIn(window, 'taxOn(0)') === 40, 'low salary pays the $40 minimum');
+check(evalIn(window, 'taxOn(500)') === 50, 'salary 500 taxed 10% = $50');
+check(evalIn(window, 'taxOn(1000)') === 110, 'salary 1000 = 10% on 800 + 15% on 200 = $110');
+check(evalIn(window, 'taxOn(3000)') === 480, 'salary 3000 = 10%×800 + 15%×1200 + 22%×1000 = $480');
+check(evalIn(window, 'taxOn(6000)') === 1240, 'salary 6000 crosses all brackets = $1240');
+
+/* promotion pushes salary into higher brackets (career already imported) */
+evalIn(window, `(() => {
+  const p = game.players[0];
+  p.careerTier = 0; p.salary = p.job.salary;
+  const before = taxOn(p.salary);
+  promotePlayer(p);
+  window.__tx = { before, after: taxOn(p.salary) };
+})()`);
+const tx = evalIn(window, 'window.__tx');
+check(tx.after >= tx.before, 'promotion never lowers the tax bill');
+
+console.log(ok ? 'V5 REALISM FEATURES OK' : 'V5 REALISM FEATURES FAIL');
 process.exit(ok ? 0 : 1);

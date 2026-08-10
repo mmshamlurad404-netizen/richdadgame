@@ -1005,18 +1005,36 @@ async function onExpense(p) {
 }
 
 async function onTax(p) {
-  const rate = 0.12;
-  const tax = Math.max(40, Math.round(p.salary * rate));
+  const tax = taxOn(p.salary);
   p.cash -= tax;
   if (p.cash < 0) await handleDebt(p);
   p.totalTaxPaid += tax;
   sfx.bad();
   const html = `
     <div class="card-title">Tax Time</div>
-    <div class="card-desc">Taxes fund roads, schools and hospitals. You owe <b>${fmt(tax)}</b> (12% of your ${fmt(p.salary)} salary).</div>
-    <div class="tip"><b>Lesson:</b> ${LESSONS.active} Taxes grow with income — plan for them.</div>`;
+    <div class="card-desc">Taxes fund roads, schools and hospitals. You owe <b>${fmt(tax)}</b> — a progressive 10% to 32% on the portions of your ${fmt(p.salary)} salary above each bracket.</div>
+    <div class="tip"><b>Lesson:</b> ${LESSONS.tax} Income in higher brackets is taxed more, so plan around promotions.</div>`;
   if (p.isHuman) await showInfo('Taxes', html, ['OK']);
   else log(`${p.name} pays ${fmt(tax)} in taxes.`);
+}
+
+/* Progressive tax on monthly salary: each bracket is taxed only on the amount above its floor. */
+const TAX_BRACKETS = [
+  { floor: 0,    rate: 0.10 },
+  { floor: 800,  rate: 0.15 },
+  { floor: 2000, rate: 0.22 },
+  { floor: 5000, rate: 0.32 },
+];
+
+function taxOn(salary) {
+  let tax = 0;
+  for (let i = 0; i < TAX_BRACKETS.length; i++) {
+    const b = TAX_BRACKETS[i];
+    const next = TAX_BRACKETS[i + 1] ? TAX_BRACKETS[i + 1].floor : Infinity;
+    const cap = Math.min(salary, next);
+    if (cap > b.floor) tax += (cap - b.floor) * b.rate;
+  }
+  return Math.max(40, Math.round(tax));
 }
 
 async function onBonus(p) {

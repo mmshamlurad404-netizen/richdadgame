@@ -1005,18 +1005,36 @@ async function onExpense(p) {
 }
 
 async function onTax(p) {
-  const rate = 0.12;
-  const tax = Math.max(40, Math.round(p.salary * rate));
+  const tax = taxOn(p.salary);
   p.cash -= tax;
   if (p.cash < 0) await handleDebt(p);
   p.totalTaxPaid += tax;
   sfx.bad();
   const html = `
     <div class="card-title">وقت مالیات</div>
-    <div class="card-desc">مالیات هزینه‌ی جاده‌ها، مدرسه‌ها و بیمارستان‌هاست. تو باید <b>${fmt(tax)}</b> بپردازی (۱۲٪ از حقوق ${fmt(p.salary)} دلاری‌ات).</div>
-    <div class="tip"><b>درس:</b> ${LESSONS.active} مالیات با درآمد رشد می‌کند — برایش برنامه‌ریزی کن.</div>`;
+    <div class="card-desc">مالیات هزینه‌ی جاده‌ها، مدرسه‌ها و بیمارستان‌هاست. تو باید <b>${fmt(tax)}</b> بپردازی — مالیات پلکانی ۱۰٪ تا ۳۲٪ روی بخش‌های حقوق ${fmt(p.salary)} دلاری‌ات بالاتر از هر آستانه.</div>
+    <div class="tip"><b>درس:</b> ${LESSONS.tax} درآمد در پله‌های بالاتر مالیات بیشتری می‌دهد، پس دور ترفیع‌ها برنامه‌ریزی کن.</div>`;
   if (p.isHuman) await showInfo('مالیات', html, ['باشه']);
   else log(`${p.name} ${fmt(tax)} مالیات می‌پردازد.`);
+}
+
+/* مالیات پلکانی روی حقوق ماهانه: هر پله فقط روی مقدار بالای آستانه‌اش مالیات می‌دهد. */
+const TAX_BRACKETS = [
+  { floor: 0,    rate: 0.10 },
+  { floor: 800,  rate: 0.15 },
+  { floor: 2000, rate: 0.22 },
+  { floor: 5000, rate: 0.32 },
+];
+
+function taxOn(salary) {
+  let tax = 0;
+  for (let i = 0; i < TAX_BRACKETS.length; i++) {
+    const b = TAX_BRACKETS[i];
+    const next = TAX_BRACKETS[i + 1] ? TAX_BRACKETS[i + 1].floor : Infinity;
+    const cap = Math.min(salary, next);
+    if (cap > b.floor) tax += (cap - b.floor) * b.rate;
+  }
+  return Math.max(40, Math.round(tax));
 }
 
 async function onBonus(p) {
