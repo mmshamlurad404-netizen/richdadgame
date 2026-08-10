@@ -235,6 +235,7 @@ main {
   font-size: 0.72rem;
   font-weight: 700;
 }
+.cflag.event-flag { background: var(--gold); color: #3a2600; }
 .cgoal { margin-top: auto; font-size: 0.74rem; color: var(--muted); }
 .bar {
   height: 9px;

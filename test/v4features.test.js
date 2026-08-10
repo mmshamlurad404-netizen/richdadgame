@@ -46,7 +46,7 @@ check(evalIn(window, `(() => { game.difficulty = 'medium'; return aiDelay() === 
 check(evalIn(window, `(() => { game.difficulty = 'hard'; return aiDelay() === 400; })()`), 'hard AI delay = 400ms');
 
 /* ================= feature 4c: loan amount options ================= */
-check(evalIn(window, `LOAN_OPTIONS.length === 3`), 'three loan sizes defined');
+check(evalIn(window, `LOAN_OPTIONS.length === 4`), 'four loan options defined (3 standard + interest-only)');
 evalIn(window, `(() => {
   const p = game.players[0];
   p.cash = 100; p.loans = [];

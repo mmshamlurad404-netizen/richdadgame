@@ -261,10 +261,12 @@ function beginGame(players, difficulty, daily) {
         savings: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'savings')),
       },
       market: shuffle(MARKET_CARDS),
+      event: shuffle(EVENT_CARDS),
       expense: shuffle(EXPENSE_CARDS),
       bonus: shuffle(BONUS_CARDS),
       baby: shuffle(BABY_CARDS),
     },
+    event: null,
     log: [],
   };
 
@@ -328,10 +330,12 @@ function saveGame() {
       decks: {
         oppByCat: Object.fromEntries(Object.entries(decks.oppByCat).map(([k, v]) => [k, v.map(c => OPPORTUNITY_CARDS.indexOf(c))])),
         market: decks.market.map(c => MARKET_CARDS.indexOf(c)),
+        event: decks.event.map(c => EVENT_CARDS.indexOf(c)),
         expense: decks.expense.map(c => EXPENSE_CARDS.indexOf(c)),
         bonus: decks.bonus.map(c => BONUS_CARDS.indexOf(c)),
         baby: decks.baby.map(c => BABY_CARDS.indexOf(c)),
       },
+      event: game.event || null,
       log: game.log.slice(-60),
       savedAt: Date.now(),
     };
@@ -387,10 +391,12 @@ function resumeGame() {
         savings: s.decks.oppByCat.savings.map(i => cardAt(OPPORTUNITY_CARDS, i)).filter(Boolean),
       },
       market: s.decks.market.map(i => cardAt(MARKET_CARDS, i)).filter(Boolean),
+      event: (s.decks.event || []).length ? s.decks.event.map(i => cardAt(EVENT_CARDS, i)).filter(Boolean) : shuffle(EVENT_CARDS),
       expense: s.decks.expense.map(i => cardAt(EXPENSE_CARDS, i)).filter(Boolean),
       bonus: s.decks.bonus.map(i => cardAt(BONUS_CARDS, i)).filter(Boolean),
       baby: s.decks.baby.map(i => cardAt(BABY_CARDS, i)).filter(Boolean),
     },
+    event: s.event || null,
     log: [],
   };
 
@@ -535,24 +541,38 @@ async function onPayday(p) {
     else log(msg);
   }
   let salary = p.salary;
+  let passive = p.passiveIncome;
+  if (game.event && game.event.passiveMult) {
+    passive = Math.round(p.passiveIncome * game.event.passiveMult);
+  }
 
-  const net = salary - p.expenses + p.passiveIncome;
+  const net = salary - p.expenses + passive;
   p.cash += net;
-  p.totalPassiveEarned += p.passiveIncome;
+  p.totalPassiveEarned += passive;
   sfx.coin();
 
   if (p.cash < 0) await handleDebt(p);
+
+  // رویدادهای سراسری فعال هر بار حقوق کم می‌شوند
+  if (game.event && game.event.turnsLeft != null) {
+    game.event.turnsLeft--;
+    if (game.event.turnsLeft <= 0) {
+      log(`تأثیر «${game.event.title}» تمام شد.`);
+      game.event = null;
+    }
+  }
 
   const escaped = checkEscape(p);
 
   // ثبت شکاف درآمد غیرفعال در برابر هزینه‌ها برای نمودار کیف دارایی‌ها
   p.history = p.history || [];
-  p.history.push({ passive: p.passiveIncome, expenses: p.expenses });
+  p.history.push({ passive, expenses: p.expenses });
   if (p.history.length > 24) p.history.shift();
 
   const html =
     `<div class="st">حقوق +${fmt(salary)}</div>` +
-    (p.passiveIncome > 0 ? `<div class="st green">درآمد غیرفعال +${fmt(p.passiveIncome)}</div>` : '') +
+    (passive > 0 ? `<div class="st green">درآمد غیرفعال +${fmt(passive)}</div>` : '') +
+    (game.event && game.event.passiveMult ? `<div class="st red">رویداد فعال: ${game.event.title}</div>` : '') +
     `<div class="st red">هزینه‌ها -${fmt(p.expenses)}</div>` +
     `<div class="st"><b>نقدینگی فعلی: ${fmt(p.cash)}</b></div>` +
     `<div class="tip">${escaped ? 'درآمد غیرفعال از هزینه‌ها بیشتر شد — انجامش دادی!' : 'حقوقت را بگیر، قبض‌هایت را بپرداز و درآمد غیرفعالت را جیب بزن. هر حقوق یک درس جریان نقدی است.'}</div>`;
@@ -946,6 +966,13 @@ function buyAsset(p, card) {
 }
 
 async function onMarket(p) {
+  // یک رویداد سراسری می‌تواند به‌جای کارت بازار عادی روی همه تأثیر بگذارد
+  if (rand(3) === 0 && game.decks.event.length) {
+    await applyEvent(game.decks.event.shift(), p);
+    renderAll();
+    saveGame();
+    return;
+  }
   const deck = game.decks.market;
   const card = deck.length ? deck.shift() : (deck.push(...shuffle(MARKET_CARDS)), deck.shift());
   card.apply(p);
@@ -986,6 +1013,40 @@ async function onMarket(p) {
     }
     renderAll();
   }
+}
+
+/* اعمال یک رویداد سراسری روی همه بازیکن‌های فعال */
+async function applyEvent(card, trigger) {
+  const targets = game.players.filter(x => !x.bankrupt);
+  if (card.ongoing) {
+    game.event = {
+      title: card.title,
+      desc: card.desc,
+      turnsLeft: card.turnsLeft || 2,
+      passiveMult: card.passiveMult,
+    };
+  } else if (card.cat && card.mult) {
+    targets.forEach(x => x.assets.forEach(a => { if (a.cat === card.cat) a.value = Math.round(a.value * card.mult); }));
+  } else if (card.monthlyMult) {
+    targets.forEach(x => x.loans.forEach(l => { if (l.kind !== 'interestOnly') l.monthly = Math.round(l.monthly * card.monthlyMult); }));
+    targets.forEach(x => recalcExpenses(x));
+  } else if (card.cost) {
+    for (const x of targets) {
+      const amt = scaleIncome(x, card.cost);
+      x.cash -= amt;
+      if (x.cash < 0) await handleDebt(x);
+      sfx.bad();
+    }
+  } else if (card.cash) {
+    targets.forEach(x => { x.cash += scaleIncome(x, card.cash); sfx.coin(); });
+  }
+  sfx.win();
+  const html = `
+    <div class="card-title">${card.title}</div>
+    <div class="card-desc">${card.desc}</div>
+    <div class="tip"><b>درس:</b> ${card.lesson}</div>`;
+  if (trigger.isHuman) await showInfo('رویداد سراسری', html, ['باشه']);
+  else log(`رویداد سراسری: ${card.title} روی کل میز تأثیر می‌گذارد.`);
 }
 
 async function onExpense(p) {
@@ -1220,6 +1281,7 @@ function renderCenter() {
     </div>
     <div class="cnet">ارزش خالص <b>${fmt(netWorth(p))}</b></div>
     ${p.downsized > 0 ? `<div class="cflag red">بیکار (${p.downsized.toLocaleString('fa-IR')} حقوق دیگر)</div>` : ''}
+    ${game.event ? `<div class="cflag event-flag">${game.event.title}${game.event.turnsLeft != null ? ` (${game.event.turnsLeft.toLocaleString('fa-IR')} حقوق دیگر)` : ''}</div>` : ''}
     <div class="cgoal">هدف: درآمد غیرفعال &gt; ${fmt(p.expenses)} هزینه
       <div class="bar"><div class="barfill" style="width:${Math.min(100, Math.round(p.expenses ? (p.passiveIncome / p.expenses) * 100 : 0))}%"></div></div>
       <span class="bar-cap">${fmt(p.passiveIncome)} / ${fmt(p.expenses)}</span>

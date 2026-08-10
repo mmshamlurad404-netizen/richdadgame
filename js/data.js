@@ -128,6 +128,29 @@ const MARKET_CARDS = [
   { title: 'Inflation', desc: 'Prices rise! Your monthly expenses increase by $25.', apply: (p) => { addMonthlyExpense(p, 25, 'Inflation'); } },
 ];
 
+/* Global events hit every player at once. Some have an ongoing effect that
+   decays over the next few paydays. Drawn on MARKET landings. */
+const EVENT_CARDS = [
+  { title: 'Recession Hits!', ongoing: true, turnsLeft: 2, passiveMult: 0.7,
+    desc: 'An economic downturn! Everyone\'s passive income drops to 70% for the next 2 paydays.',
+    lesson: 'Income can shrink without warning. A reserve and low expenses keep you safe in a downturn.' },
+  { title: 'Medical Bills', cost: 200,
+    desc: 'A family health scare sends every player a medical bill.',
+    lesson: 'Healthcare costs are a top reason people go broke. This is what an emergency fund is for.' },
+  { title: 'Market Rally!', mult: 1.25, cat: 'stock',
+    desc: 'Markets soar — every player\'s stocks gain 25% in value.',
+    lesson: 'Diversified holdings ride rallies up too. Time in the market beats timing it.' },
+  { title: 'Rent Surge!', mult: 1.2, cat: 'realestate',
+    desc: 'Rents climb everywhere — every player\'s real estate gains 20% in value.',
+    lesson: 'Real estate value rises with demand. Hold through the cycle.' },
+  { title: 'Bonus Windfall', cash: 150,
+    desc: 'A national surplus is shared out — every player receives a cash bonus.',
+    lesson: 'Windfalls are rare. Bank them instead of spending them.' },
+  { title: 'Interest Rate Cut', monthlyMult: 0.8,
+    desc: 'The central bank cuts rates — every player\'s standard loan interest drops 20%.',
+    lesson: 'Cheaper money makes debt less painful. Watch rates before you borrow.' },
+];
+
 const EXPENSE_CARDS = [
   { title: 'New Phone Case', cash: 30, desc: 'The shiny new case catches your eye.', lesson: 'Needs vs wants: ask "do I really need it?" before buying.' },
   { title: 'Streaming Month', cash: 15, desc: 'One month of your favourite shows.', lesson: 'Small treats are fine — just track them.' },
@@ -333,6 +356,7 @@ const HOW_TO_PLAY = [
   { h: 'Promotions', t: 'PROMOTION spaces climb your career ladder: higher salary, a little more expense, and a cash bonus. Skills are assets too.' },
   { h: 'Bankruptcy', t: 'If you cannot cover your bills, you must fire-sale assets, restructure your debt, or retire from the game. Avoid it with an emergency fund.' },
   { h: 'Loans & Credit', t: 'Borrow from the portfolio to fund deals, but interest costs you every month. Interest-only loans are cheaper monthly yet cost a 20% premium to settle. Repaying loans raises your credit score and lowers future rates.' },
+  { h: 'Global Events', t: 'Sometimes a MARKET space triggers a global event instead of a news card: recessions cut passive income for a few paydays, rallies raise asset values, rate cuts shrink loan interest. Events hit every player — good luck is shared, and so is bad luck.' },
   { h: 'Winning', t: 'Reach passive income greater than expenses on a payday and you escape the Rat Race. The first to escape wins!' },
 ];
 
