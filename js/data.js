@@ -171,6 +171,7 @@ const LESSONS = {
   ratrace: 'The Rat Race is working to pay bills without building wealth. Escaping means your assets out-earn your expenses.',
   freedom: 'Financial freedom = passive income greater than your expenses.',
   debt: 'A loan gives cash now, but interest takes money every month. Borrow wisely.',
+  credit: 'Your credit score sets your interest rate. Repay loans to raise it; bankruptcy and restructure drop it. Good credit borrows cheaper.',
   needs: 'Needs are things you must have. Wants are nice to have. Spend on needs first.',
   promote: 'Career growth raises your salary — but lifestyle creep raises expenses too. What matters is the gap you keep and invest.',
   bankrupt: 'When bills exceed every resource, you are bankrupt. Fire-sale, restructure or retire — bankruptcy is expensive, so plan to avoid it.',
@@ -329,6 +330,7 @@ const HOW_TO_PLAY = [
   { h: 'Charity', t: 'Giving on the GIVING space earns you a bonus roll next turn. Generosity pays back.' },
   { h: 'Promotions', t: 'PROMOTION spaces climb your career ladder: higher salary, a little more expense, and a cash bonus. Skills are assets too.' },
   { h: 'Bankruptcy', t: 'If you cannot cover your bills, you must fire-sale assets, restructure your debt, or retire from the game. Avoid it with an emergency fund.' },
+  { h: 'Loans & Credit', t: 'Borrow from the portfolio to fund deals, but interest costs you every month. Interest-only loans are cheaper monthly yet cost a 20% premium to settle. Repaying loans raises your credit score and lowers future rates.' },
   { h: 'Winning', t: 'Reach passive income greater than expenses on a payday and you escape the Rat Race. The first to escape wins!' },
 ];
 

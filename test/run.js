@@ -14,6 +14,7 @@ const TESTS = [
   { file: 'difficulty.test.js' },
   { file: 'v3features.test.js' },
   { file: 'v4features.test.js' },
+  { file: 'v5features.test.js' },
 ];
 
 let failed = 0;

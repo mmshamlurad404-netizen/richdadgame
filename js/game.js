@@ -238,6 +238,7 @@ function beginGame(players, difficulty, daily) {
       totalCharity: 0,
       investmentsBought: 0,
       bankruptcies: 0,
+      credit: 700,
     };
   });
 
@@ -317,6 +318,7 @@ function saveGame() {
         escaped: p.escaped, bankrupt: p.bankrupt, totalPassiveEarned: p.totalPassiveEarned,
         totalTaxPaid: p.totalTaxPaid, totalCharity: p.totalCharity,
         investmentsBought: p.investmentsBought, bankruptcies: p.bankruptcies,
+        credit: p.credit,
       })),
       current: game.current,
       turn: game.turn,
@@ -365,6 +367,7 @@ function resumeGame() {
       escaped: cfg.escaped, bankrupt: !!cfg.bankrupt, totalPassiveEarned: cfg.totalPassiveEarned,
       totalTaxPaid: cfg.totalTaxPaid, totalCharity: cfg.totalCharity,
       investmentsBought: cfg.investmentsBought, bankruptcies: cfg.bankruptcies,
+      credit: cfg.credit ?? 700,
     };
   });
   const cardAt = (cards, idx) => (idx >= 0 ? cards[idx] : null);
@@ -646,7 +649,8 @@ function restructure(p) {
   p.salary = p.baseSalary;
   p.cash = 200;
   p.bankruptcies++;
-  if (p.isHuman) log(`${p.name} restructures: loans cleared and lifestyle reset to ${fmt(p.expenses)}/mo.`);
+  p.credit = Math.max(400, Math.round((p.credit || 700) - 150));
+  if (p.isHuman) log(`${p.name} restructures: loans cleared and lifestyle reset to ${fmt(p.expenses)}/mo. Credit drops to ${p.credit}.`);
   else log(`${p.name} restructures their debt.`);
   saveGame();
 }
@@ -703,28 +707,53 @@ function scaleIncome(p, n) {
   return Math.max(20, Math.round(n * factor));
 }
 
+/* Credit score drives interest: good credit borrows cheaper, bad credit pays more. */
+function rateFor(p) {
+  const c = p.credit ?? 700;
+  if (c >= 750) return 0.075;
+  if (c < 650) return 0.09;
+  return 0.08;
+}
+
 const LOAN_OPTIONS = [
-  { amount: 500,  monthly: 40,  label: '$500 · -$40/mo' },
-  { amount: 1000, monthly: 80,  label: '$1000 · -$80/mo' },
-  { amount: 2000, monthly: 160, label: '$2000 · -$160/mo' },
+  { amount: 500,  kind: 'standard', label: '$500' },
+  { amount: 1000, kind: 'standard', label: '$1000' },
+  { amount: 2000, kind: 'standard', label: '$2000' },
+  { amount: 1500, kind: 'interestOnly', label: '$1500 · interest-only' },
 ];
+
+function loanMonthly(p, opt) {
+  return opt.kind === 'interestOnly'
+    ? Math.round(opt.amount * 0.05)
+    : Math.round(opt.amount * rateFor(p));
+}
+
+function loanSettleCost(loan) {
+  // Interest-only loans were never paid down — settling costs a 20% premium.
+  return loan.kind === 'interestOnly' ? Math.round(loan.principal * 1.2) : loan.principal;
+}
 
 function takeLoan(p, amount) {
   const opt = LOAN_OPTIONS.find(o => o.amount === amount) || LOAN_OPTIONS[1];
+  const monthly = loanMonthly(p, opt);
   p.cash += opt.amount;
-  p.loans.push({ principal: opt.amount, monthly: opt.monthly });
+  p.loans.push({ principal: opt.amount, monthly: monthly, kind: opt.kind });
   recalcExpenses(p);
   saveGame();
-  return opt;
+  return { ...opt, monthly };
 }
 
 function repayLoan(p, loan) {
-  if (p.cash >= loan.principal) {
-    p.cash -= loan.principal;
+  const cost = loanSettleCost(loan);
+  if (p.cash >= cost) {
+    p.cash -= cost;
     p.loans = p.loans.filter(l => l !== loan);
+    p.credit = Math.min(850, (p.credit || 700) + 10);
     recalcExpenses(p);
     saveGame();
+    return true;
   }
+  return false;
 }
 
 function drawCat(cat) {
@@ -1253,9 +1282,9 @@ function openPortfolio() {
   const loansHtml = p.loans.length
     ? p.loans.map((l, i) => `
       <div class="prow2">
-        <div class="p2name"><b>Bank Loan</b><span>interest ${fmt(l.monthly)}/mo</span></div>
-        <div class="p2val">${fmt(l.principal)}</div>
-        <button class="btn small repay" data-repay="${i}">Repay</button>
+        <div class="p2name"><b>Bank Loan${l.kind === 'interestOnly' ? ' (interest-only)' : ''}</b><span>interest ${fmt(l.monthly)}/mo</span></div>
+        <div class="p2val">${fmt(loanSettleCost(l))}</div>
+        <button class="btn small repay" data-repay="${i}">${l.kind === 'interestOnly' ? 'Settle' : 'Repay'}</button>
       </div>`).join('')
     : '<div class="empty">No loans. Good — debt costs money every month.</div>';
 
@@ -1294,6 +1323,7 @@ function openPortfolio() {
       <div><span>Cash</span><b>${fmt(p.cash)}</b></div>
       <div><span>Net worth</span><b>${fmt(netWorth(p))}</b></div>
       <div><span>Loans</span><b>${fmt(p.loans.reduce((s, l) => s + l.principal, 0))}</b></div>
+      <div><span>Credit score</span><b>${p.credit ?? 700}</b></div>
     </div>
     <h3>Expenses <span class="hint">what goes out each month</span></h3>
     ${expensesHtml}
@@ -1328,9 +1358,19 @@ function openPortfolio() {
     }
   };
   const onRepay = (i) => {
-    repayLoan(p, p.loans[i]);
-    log(`${p.name} repays a bank loan.`);
-    openPortfolio();
+    const loan = p.loans[i];
+    const cost = loanSettleCost(loan);
+    const confirmMsg = loan.kind === 'interestOnly'
+      ? `Settle your interest-only loan for <b>${fmt(cost)}</b>? You will clear its -${fmt(loan.monthly)}/mo interest.`
+      : `Repay this loan for <b>${fmt(cost)}</b>? You will clear its -${fmt(loan.monthly)}/mo interest.`;
+    const doRepay = async () => {
+      if (repayLoan(p, loan)) {
+        log(`${p.name} ${loan.kind === 'interestOnly' ? 'settles' : 'repays'} a bank loan for ${fmt(cost)}. Credit +10.`);
+      }
+      openPortfolio();
+    };
+    showInfo('Repay Loan', confirmMsg, [
+      { v: 1, label: loan.kind === 'interestOnly' ? 'Settle' : 'Repay', cls: 'ok' }, { v: 0, label: 'Keep', cls: 'cancel' }]).then(doRepay);
   };
   body.querySelectorAll('.sell').forEach(b => b.addEventListener('click', () => onSell(+b.dataset.sell)));
   body.querySelectorAll('.repay').forEach(b => b.addEventListener('click', () => onRepay(+b.dataset.repay)));
@@ -1338,14 +1378,14 @@ function openPortfolio() {
   body.querySelector('[data-act="loan"]').addEventListener('click', async () => {
     if (p.loans.length >= 3) { log('Bank maxed out: you already have 3 loans.'); return; }
     const choice = await ask('Borrow from the Bank',
-      `<div class="card-desc">Pick a loan size. Interest is paid every month until you repay it.</div>` +
-      LOAN_OPTIONS.map(o => `<div class="st"><span>${o.label}</span><b class="red">${fmt(o.monthly)}/mo</b></div>`).join(''),
-      [...LOAN_OPTIONS.map(o => ({ v: String(o.amount), label: o.label, cls: 'ok' })),
+      `<div class="card-desc">Pick a loan. Standard loans are repaid in full; interest-only loans have a lower monthly cost but cost a 20% premium to settle. Your credit is <b>${p.credit ?? 700}</b> (${Math.round(rateFor(p) * 100)}% standard rate).</div>` +
+      LOAN_OPTIONS.map(o => `<div class="st"><span>${o.label}</span><b class="red">${fmt(loanMonthly(p, o))}/mo</b></div>`).join(''),
+      [...LOAN_OPTIONS.map(o => ({ v: String(o.amount), label: o.label + (o.kind === 'interestOnly' ? ' (interest-only)' : ''), cls: 'ok' })),
        { v: 'cancel', label: 'Cancel', cls: 'cancel' }]);
     if (choice !== 'cancel') {
       const opt = takeLoan(p, +choice);
       sfx.buy();
-      log(`${p.name} borrows ${fmt(opt.amount)} from the bank (+${fmt(opt.monthly)}/mo interest).`);
+      log(`${p.name} borrows ${fmt(opt.amount)} from the bank (-${fmt(opt.monthly)}/mo${opt.kind === 'interestOnly' ? ', interest-only' : ''}).`);
       openPortfolio();
     }
   });
