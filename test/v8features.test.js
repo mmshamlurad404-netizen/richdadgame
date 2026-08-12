@@ -93,6 +93,16 @@ evalIn(window, `(() => {
 })()`);
 check(evalIn(window, 'window.__rt') === 0, 'retirement empties the emergency fund');
 
+/* ================= B: deal payback rating ================= */
+check(evalIn(window, `paybackRating({cost: 5000, monthly: 100}).cls`) === 'pr-slow', 'slow deal is rated pr-slow');
+check(evalIn(window, `paybackRating({cost: 1200, monthly: 100}).cls`) === 'pr-great', '12-month payback is a great deal');
+check(evalIn(window, `paybackRating({cost: 2400, monthly: 100}).cls`) === 'pr-good', '24-month payback is a good deal');
+check(evalIn(window, `paybackRating({cost: 3600, monthly: 100}).cls`) === 'pr-fair', '36-month payback is a fair deal');
+check(evalIn(window, `paybackRating({cost: 100, monthly: 0}).cls`) === 'pr-slow', 'zero income deal is rated slow');
+check(evalIn(window, `paybackRating({value: 1200, monthly: 100}).cls`) === 'pr-great', 'assets without cost fall back to value');
+check(evalIn(window, `paybackBadge({cost: 600, monthly: 50}).includes('pr-great')`), 'paybackBadge renders the rating class');
+check(evalIn(window, `paybackMonths({value: 1000, monthly: 100})`) === 10, 'paybackMonths uses value when cost is absent');
+
 /* ================= persistence ================= */
 evalIn(window, `(() => {
   const p = game.players[0];

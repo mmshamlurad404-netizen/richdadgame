@@ -382,6 +382,21 @@ main {
 .deal-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .deal-info b { font-size: 0.9rem; }
 .deal-sub { font-size: 0.72rem; color: var(--muted); line-height: 1.4; }
+.payback-badge {
+  align-self: flex-start;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  margin: 2px 0 3px;
+}
+.payback-badge.pr-great { background: rgba(46, 204, 113, 0.2); color: #2ecc71; }
+.payback-badge.pr-good { background: rgba(52, 152, 219, 0.2); color: #3498db; }
+.payback-badge.pr-fair { background: rgba(241, 196, 15, 0.2); color: #f1c40f; }
+.payback-badge.pr-slow { background: rgba(231, 76, 60, 0.2); color: #e74c3c; }
+.p2name .payback-badge { margin: 0 0 3px; }
 .deal-cash { font-size: 0.85rem; margin-bottom: 8px; }
 .deal-cash b { color: var(--green); }
 .tip {

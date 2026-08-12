@@ -862,7 +862,22 @@ function drawCat(cat) {
 }
 
 function paybackMonths(card) {
-  return card.monthly > 0 ? Math.ceil(card.cost / card.monthly) : 0;
+  const cost = card.cost != null ? card.cost : (card.value || 0);
+  return card.monthly > 0 ? Math.ceil(cost / card.monthly) : 0;
+}
+
+function paybackRating(card) {
+  const mo = paybackMonths(card);
+  if (mo <= 0) return { label: 'بدون بازگشت', cls: 'pr-slow' };
+  if (mo <= 12) return { label: 'معامله عالی', cls: 'pr-great' };
+  if (mo <= 24) return { label: 'معامله خوب', cls: 'pr-good' };
+  if (mo <= 48) return { label: 'معامله متوسط', cls: 'pr-fair' };
+  return { label: 'بازگشت در ' + mo + ' ماه', cls: 'pr-slow' };
+}
+
+function paybackBadge(card) {
+  const r = paybackRating(card);
+  return `<span class="payback-badge ${r.cls}" title="در ${paybackMonths(card)} ماه هزینه‌اش برمی‌گردد">${r.label}</span>`;
 }
 
 function sellAsset(p, a) {
@@ -888,6 +903,7 @@ async function onOpportunity(p) {
       <div class="deal-row">
         <div class="deal-info">
           <b>${card.title}</b>
+          ${paybackBadge(card)}
           <span class="deal-sub">${o.dc.label} · هزینه ${fmt(card.cost)} · +${fmt(card.monthly)}/ماه · بازگشت ${paybackMonths(card).toLocaleString('fa-IR')} ماه</span>
         </div>
         <button class="btn small ok" data-buy="${i}" ${affordable ? '' : 'disabled'}>خرید</button>
@@ -1036,6 +1052,7 @@ function buyAsset(p, card) {
     name: card.title,
     cat: card.cat,
     value: card.value,
+    cost: card.cost,
     monthly: card.monthly,
   });
   sfx.buy();
@@ -1693,7 +1710,7 @@ function openTradeView() {
     ${o.assets.length
       ? o.assets.map(a => `
         <div class="prow2">
-          <div class="p2name"><b>${a.name}</b><span>${a.cat} · +${fmt(a.monthly)}/ماه</span></div>
+        <div class="p2name"><b>${a.name}</b>${paybackBadge(a)}<span>${a.cat} · +${fmt(a.monthly)}/ماه</span></div>
           <div class="p2val">${fmt(a.value)}</div>
           <button class="btn small ok" data-buy="${o.name}|${a.name}">خرید</button>
         </div>`).join('')

@@ -862,7 +862,22 @@ function drawCat(cat) {
 }
 
 function paybackMonths(card) {
-  return card.monthly > 0 ? Math.ceil(card.cost / card.monthly) : 0;
+  const cost = card.cost != null ? card.cost : (card.value || 0);
+  return card.monthly > 0 ? Math.ceil(cost / card.monthly) : 0;
+}
+
+function paybackRating(card) {
+  const mo = paybackMonths(card);
+  if (mo <= 0) return { label: 'No return', cls: 'pr-slow' };
+  if (mo <= 12) return { label: 'Great deal', cls: 'pr-great' };
+  if (mo <= 24) return { label: 'Good deal', cls: 'pr-good' };
+  if (mo <= 48) return { label: 'Fair deal', cls: 'pr-fair' };
+  return { label: mo + 'mo payback', cls: 'pr-slow' };
+}
+
+function paybackBadge(card) {
+  const r = paybackRating(card);
+  return `<span class="payback-badge ${r.cls}" title="Pays for itself in ${paybackMonths(card)} months">${r.label}</span>`;
 }
 
 function sellAsset(p, a) {
@@ -888,6 +903,7 @@ async function onOpportunity(p) {
       <div class="deal-row">
         <div class="deal-info">
           <b>${card.title}</b>
+          ${paybackBadge(card)}
           <span class="deal-sub">${o.dc.label} · Cost ${fmt(card.cost)} · +${fmt(card.monthly)}/mo · Payback ${paybackMonths(card)} mo</span>
         </div>
         <button class="btn small ok" data-buy="${i}" ${affordable ? '' : 'disabled'}>Buy</button>
@@ -1035,6 +1051,7 @@ function buyAsset(p, card) {
   p.assets.push({
     name: card.title,
     cat: card.cat,
+    cost: card.cost,
     value: card.value,
     monthly: card.monthly,
   });
@@ -1693,7 +1710,7 @@ function openTradeView() {
     ${o.assets.length
       ? o.assets.map(a => `
         <div class="prow2">
-          <div class="p2name"><b>${a.name}</b><span>${a.cat} · +${fmt(a.monthly)}/mo</span></div>
+        <div class="p2name"><b>${a.name}</b>${paybackBadge(a)}<span>${a.cat} · +${fmt(a.monthly)}/mo</span></div>
           <div class="p2val">${fmt(a.value)}</div>
           <button class="btn small ok" data-buy="${o.name}|${a.name}">Buy</button>
         </div>`).join('')
