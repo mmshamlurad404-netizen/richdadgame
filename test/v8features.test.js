@@ -7,6 +7,7 @@ let ok = true;
 const check = (cond, msg) => { console.log('  ' + (cond ? 'ok' : 'FAIL') + ' ' + msg); if (!cond) ok = false; };
 
 window.startGame();
+const key = 'mq_save_' + document.documentElement.lang;
 
 /* ================= A: emergency fund ================= */
 check(evalIn(window, `game.players.every(p => p.emergencyFund === 0)`), 'new players start with an empty emergency fund');
@@ -103,6 +104,81 @@ check(evalIn(window, `paybackRating({value: 1200, monthly: 100}).cls`) === 'pr-g
 check(evalIn(window, `paybackBadge({cost: 600, monthly: 50}).includes('pr-great')`), 'paybackBadge renders the rating class');
 check(evalIn(window, `paybackMonths({value: 1000, monthly: 100})`) === 10, 'paybackMonths uses value when cost is absent');
 
+/* ================= C: asset value transparency + per-category insurance ================= */
+check(evalIn(window, `game.players.every(p => Array.isArray(p.insurance) && p.insurance.length === 0)`), 'new players start uninsured');
+
+/* premium is 1% of insured asset value */
+evalIn(window, `(() => {
+  const p = game.players[0];
+  p.assets.push({ name: 'House', cat: 'realestate', cost: 10000, value: 10000, monthly: 500 });
+  const pre = p.expenses;
+  buyInsurance(p, 'realestate');
+  window.__ins = { pre, post: p.expenses, insured: p.insurance.slice(), prem: insurancePremium(p) };
+})()`);
+const ins = evalIn(window, 'window.__ins');
+check(ins.insured.includes('realestate') && ins.prem === 100, 'buying insurance adds a 1% monthly premium');
+check(ins.post === ins.pre + 100, 'insurance premium flows into monthly expenses');
+
+/* cancel removes the premium */
+evalIn(window, `(() => {
+  const p = game.players[0];
+  sellInsurance(p, 'realestate');
+  window.__cancel = { prem: insurancePremium(p), insured: p.insurance.slice() };
+})()`);
+const cancel = evalIn(window, 'window.__cancel');
+check(cancel.prem === 0 && !cancel.insured.includes('realestate'), 'cancelling insurance removes the premium');
+
+/* uninsured market-down loses full value; insured keeps 60% of purchase cost */
+evalIn(window, `(() => {
+  const p = game.players[0];
+  const q = game.players[1];
+  p.bankrupt = false; q.bankrupt = false; q.assets = [];
+  p.assets = [{ name: 'Ins', cat: 'stock', cost: 1000, value: 1000, monthly: 10 }];
+  q.assets = [{ name: 'Unins', cat: 'stock', cost: 1000, value: 1000, monthly: 10 }];
+  buyInsurance(p, 'stock');
+  const crash = { title: 'Crash', cat: 'stock', mult: 0.5, desc: '', lesson: '' };
+  applyEvent(crash, p);
+  window.__crash = {
+    ins: p.assets[0].value,
+    unins: q.assets[0].value,
+  };
+})()`);
+const crash = evalIn(window, 'window.__crash');
+check(crash.ins === 600, 'insured stock stops at 60% of purchase cost on a crash');
+check(crash.unins === 500, 'uninsured asset loses the full 50%');
+
+/* selling an asset lowers the premium */
+evalIn(window, `(() => {
+  const p = game.players[0];
+  p.assets = [{ name: 'Only', cat: 'stock', cost: 1000, value: 1000, monthly: 10 }];
+  sellInsurance(p, 'stock');
+  buyInsurance(p, 'stock');
+  window.__pre = insurancePremium(p);
+  sellAsset(p, p.assets[0]);
+  window.__post = insurancePremium(p);
+})()`);
+check(evalIn(window, 'window.__pre') === 10 && evalIn(window, 'window.__post') === 0, 'selling an insured asset drops the premium');
+
+/* save/resume persists insurance */
+evalIn(window, `(() => {
+  const p = game.players[0];
+  p.bankrupt = false;
+  buyInsurance(p, 'business');
+  saveGame();
+})()`);
+const saved2 = JSON.parse(window.localStorage.getItem(key));
+check(saved2.players[0].insurance.includes('business'), 'insurance persisted in save');
+const b3 = loadGame(htmlDir, jsDir, { [key]: JSON.stringify(saved2) });
+b3.document.getElementById('resume-btn').click();
+check(evalIn(b3.window, 'game.players[0].insurance').includes('business'), 'resume restores insurance');
+
+/* old saves backfill insurance to empty */
+const oldSave2 = JSON.parse(JSON.stringify(saved2));
+delete oldSave2.players[0].insurance;
+const b4 = loadGame(htmlDir, jsDir, { [key]: JSON.stringify(oldSave2) });
+b4.document.getElementById('resume-btn').click();
+check(evalIn(b4.window, 'game.players[0].insurance').length === 0, 'old saves backfill insurance to empty');
+
 /* ================= persistence ================= */
 evalIn(window, `(() => {
   const p = game.players[0];
@@ -110,7 +186,6 @@ evalIn(window, `(() => {
   p.emergencyFund = 320;
   saveGame();
 })()`);
-const key = 'mq_save_' + document.documentElement.lang;
 const saved = JSON.parse(window.localStorage.getItem(key));
 check(saved.players[0].emergencyFund === 320, 'emergency fund persisted in save');
 

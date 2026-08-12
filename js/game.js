@@ -241,6 +241,7 @@ function beginGame(players, difficulty, daily, mode) {
       bankruptcies: 0,
       credit: 700,
       emergencyFund: 0,
+      insurance: [],
     };
   });
 
@@ -326,6 +327,7 @@ function saveGame() {
         investmentsBought: p.investmentsBought, bankruptcies: p.bankruptcies,
         credit: p.credit,
         emergencyFund: p.emergencyFund || 0,
+        insurance: p.insurance || [],
       })),
       current: game.current,
       turn: game.turn,
@@ -380,6 +382,7 @@ function resumeGame() {
       investmentsBought: cfg.investmentsBought, bankruptcies: cfg.bankruptcies,
       credit: cfg.credit ?? 700,
       emergencyFund: cfg.emergencyFund || 0,
+      insurance: cfg.insurance || [],
     };
   });
   const cardAt = (cards, idx) => (idx >= 0 ? cards[idx] : null);
@@ -756,7 +759,7 @@ async function checkElimination() {
 
 function recalcExpenses(p) {
   const loanInterest = p.loans.reduce((s, l) => s + l.monthly, 0);
-  p.expenses = p.expenseItems.reduce((s, it) => s + it.monthly, 0) + loanInterest;
+  p.expenses = p.expenseItems.reduce((s, it) => s + it.monthly, 0) + loanInterest + insurancePremium(p);
 }
 
 function addMonthlyExpense(p, amt, name) {
@@ -798,6 +801,32 @@ function withdrawEmergency(p, amount) {
   p.emergencyFund -= amt;
   p.cash += amt;
   return amt;
+}
+
+/* ---- per-category insurance: caps losses when a market-down event hits ---- */
+
+const INSURANCE_RATE = 0.01; // monthly premium = 1% of insured assets' value
+const INSURANCE_FLOOR = 0.6; // insured assets never fall below 60% of purchase cost
+
+function insurancePremium(p) {
+  const insured = p.insurance || [];
+  const total = p.assets.reduce((s, a) => insured.includes(a.cat) ? s + a.value : s, 0);
+  return Math.round(total * INSURANCE_RATE);
+}
+
+function buyInsurance(p, cat) {
+  p.insurance = p.insurance || [];
+  if (p.insurance.includes(cat)) return false;
+  p.insurance.push(cat);
+  recalcExpenses(p);
+  saveGame();
+  return true;
+}
+
+function sellInsurance(p, cat) {
+  p.insurance = (p.insurance || []).filter(c => c !== cat);
+  recalcExpenses(p);
+  saveGame();
 }
 
 function scaleIncome(p, n) {
@@ -884,6 +913,7 @@ function sellAsset(p, a) {
   p.cash += a.value;
   p.passiveIncome -= a.monthly;
   p.assets = p.assets.filter(x => x !== a);
+  recalcExpenses(p);
   sfx.coin();
   log(`${p.name} sells ${a.name} for ${fmt(a.value)}.`);
   renderAll();
@@ -1122,7 +1152,15 @@ async function applyEvent(card, trigger) {
       passiveMult: card.passiveMult,
     };
   } else if (card.cat && card.mult) {
-    targets.forEach(x => x.assets.forEach(a => { if (a.cat === card.cat) a.value = Math.round(a.value * card.mult); }));
+    targets.forEach(x => x.assets.forEach(a => {
+      if (a.cat !== card.cat) return;
+      const newVal = Math.round(a.value * card.mult);
+      // insured categories keep at least 60% of purchase cost on a market-down
+      const floor = (x.insurance || []).includes(a.cat) && card.mult < 1
+        ? Math.round((a.cost != null ? a.cost : a.value) * INSURANCE_FLOOR)
+        : 0;
+      a.value = Math.max(newVal, floor);
+    }));
   } else if (card.monthlyMult) {
     targets.forEach(x => x.loans.forEach(l => { if (l.kind !== 'interestOnly') l.monthly = Math.round(l.monthly * card.monthlyMult); }));
     targets.forEach(x => recalcExpenses(x));
@@ -1468,13 +1506,30 @@ function ask(title, html, buttons) {
 function openPortfolio() {
   const p = currentPlayer();
   const assetsHtml = p.assets.length
-    ? p.assets.map((a, i) => `
+    ? p.assets.map((a, i) => {
+        const gl = a.cost != null ? a.value - a.cost : null;
+        const glCls = gl > 0 ? 'gl-up' : (gl < 0 ? 'gl-down' : 'gl-flat');
+        const glTxt = gl != null && gl !== 0 ? `${gl > 0 ? '+' : ''}${fmt(gl)}` : null;
+        return `
       <div class="prow2">
-        <div class="p2name"><b>${a.name}</b><span>${a.cat} · +${fmt(a.monthly)}/mo</span></div>
-        <div class="p2val">${fmt(a.value)}</div>
+        <div class="p2name"><b>${a.name}</b>${paybackBadge(a)}<span>${a.cat} · +${fmt(a.monthly)}/mo</span></div>
+        <div class="p2val">${fmt(a.value)}${glTxt ? ` <span class="gl ${glCls}">${glTxt}</span>` : ''}</div>
         <button class="btn small sell" data-sell="${i}">Sell</button>
-      </div>`).join('')
+      </div>`;
+      }).join('')
     : '<div class="empty">No assets yet. Land on DEAL spaces and invest!</div>';
+  const catsOwned = [...new Set(p.assets.map(a => a.cat))];
+  const insuranceHtml = catsOwned.length
+    ? `<div class="ins-list">${catsOwned.map(cat => {
+        const catVal = p.assets.filter(a => a.cat === cat).reduce((s, a) => s + a.value, 0);
+        const on = (p.insurance || []).includes(cat);
+        return `
+      <div class="ins-row">
+        <span><b>${DEAL_CATS.find(dc => dc.cat === cat)?.label || cat}</b> · value ${fmt(catVal)} · ${on ? `premium ${fmt(Math.round(catVal * INSURANCE_RATE))}/mo` : 'uninsured'}</span>
+        <button class="btn small ${on ? 'cancel' : 'ok'}" data-ins="${cat}">${on ? 'Cancel' : 'Insure'}</button>
+      </div>`;
+      }).join('')}</div>`
+    : '<div class="empty">Buy assets first — insurance protects the categories you own.</div>';
   const loansHtml = p.loans.length
     ? p.loans.map((l, i) => `
       <div class="prow2">
@@ -1495,6 +1550,11 @@ function openPortfolio() {
       <div class="prow2">
         <div class="p2name"><b>Bank loan interest</b><span>${p.loans.length} loan${p.loans.length > 1 ? 's' : ''}</span></div>
         <div class="p2val red">-${fmt(loanInterest)}</div>
+      </div>` : '') +
+    (insurancePremium(p) > 0 ? `
+      <div class="prow2">
+        <div class="p2name"><b>Insurance premiums</b><span>${(p.insurance || []).length} covered categor${(p.insurance || []).length > 1 ? 'ies' : 'y'}</span></div>
+        <div class="p2val red">-${fmt(insurancePremium(p))}</div>
       </div>` : '');
 
   const hist = (p.history || []).slice(-12);
@@ -1531,6 +1591,8 @@ function openPortfolio() {
     ${expensesHtml}
     <h3>Assets <span class="hint">sell for their current market value</span></h3>
     ${assetsHtml}
+    <h3>Insurance <span class="hint">1% of insured value per month · caps market-down losses at 60% of cost</span></h3>
+    ${insuranceHtml}
     <h3>Loans</h3>
     ${loansHtml}
     <h3>Cash Flow History <span class="hint">passive vs expenses each payday</span></h3>
@@ -1552,6 +1614,7 @@ function openPortfolio() {
       p.cash += a.value;
       p.passiveIncome -= a.monthly;
       p.assets.splice(i, 1);
+      recalcExpenses(p);
       sfx.coin();
       log(`${p.name} sells ${a.name} for ${fmt(a.value)}.`);
       openPortfolio();
@@ -1576,6 +1639,17 @@ function openPortfolio() {
   };
   body.querySelectorAll('.sell').forEach(b => b.addEventListener('click', () => onSell(+b.dataset.sell)));
   body.querySelectorAll('.repay').forEach(b => b.addEventListener('click', () => onRepay(+b.dataset.repay)));
+  body.querySelectorAll('[data-ins]').forEach(b => b.addEventListener('click', () => {
+    const cat = b.dataset.ins;
+    if ((p.insurance || []).includes(cat)) {
+      sellInsurance(p, cat);
+      log(`${p.name} cancels ${cat} insurance.`);
+    } else {
+      buyInsurance(p, cat);
+      log(`${p.name} insures their ${cat} assets.`);
+    }
+    openPortfolio();
+  }));
   body.querySelector('[data-act="trade"]').addEventListener('click', openTradeView);
   body.querySelector('[data-act="loan"]').addEventListener('click', async () => {
     if (p.loans.length >= 3) { log('Bank maxed out: you already have 3 loans.'); return; }
@@ -1710,7 +1784,7 @@ function openTradeView() {
     ${o.assets.length
       ? o.assets.map(a => `
         <div class="prow2">
-        <div class="p2name"><b>${a.name}</b>${paybackBadge(a)}<span>${a.cat} · +${fmt(a.monthly)}/mo</span></div>
+        <div class="p2name"><b>${a.name}</b><span>${a.cat} · +${fmt(a.monthly)}/mo</span></div>
           <div class="p2val">${fmt(a.value)}</div>
           <button class="btn small ok" data-buy="${o.name}|${a.name}">Buy</button>
         </div>`).join('')

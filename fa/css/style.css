@@ -495,6 +495,25 @@ main {
   flex-wrap: wrap;
 }
 .fund-row span { flex: 1; min-width: 140px; }
+.ins-list { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 12px; }
+.ins-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: rgba(52, 152, 219, 0.1);
+  border: 1px solid rgba(52, 152, 219, 0.25);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.ins-row b { color: var(--text); }
+.ins-row .btn { flex-shrink: 0; }
+.gl { font-size: 0.68rem; font-weight: 700; }
+.gl-up { color: #2ecc71; }
+.gl-down { color: #e74c3c; }
+.gl-flat { color: var(--muted); }
 .prow2 {
   display: flex;
   align-items: center;
