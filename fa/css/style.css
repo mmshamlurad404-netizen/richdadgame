@@ -467,6 +467,20 @@ main {
 }
 .pstats span { color: var(--muted); }
 .pstats .cf-row { grid-column: 1 / -1; background: rgba(0, 0, 0, 0.4); }
+.fund-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(52, 152, 219, 0.15);
+  border: 1px dashed rgba(52, 152, 219, 0.5);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 8px 0 12px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+.fund-row span { flex: 1; min-width: 140px; }
 .prow2 {
   display: flex;
   align-items: center;

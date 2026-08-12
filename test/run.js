@@ -17,6 +17,7 @@ const TESTS = [
   { file: 'v5features.test.js' },
   { file: 'v6features.test.js' },
   { file: 'v7features.test.js' },
+  { file: 'v8features.test.js' },
 ];
 
 let failed = 0;

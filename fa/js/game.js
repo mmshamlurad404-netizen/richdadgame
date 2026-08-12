@@ -240,6 +240,7 @@ function beginGame(players, difficulty, daily, mode) {
       investmentsBought: 0,
       bankruptcies: 0,
       credit: 700,
+      emergencyFund: 0,
     };
   });
 
@@ -324,6 +325,7 @@ function saveGame() {
         totalTaxPaid: p.totalTaxPaid, totalCharity: p.totalCharity,
         investmentsBought: p.investmentsBought, bankruptcies: p.bankruptcies,
         credit: p.credit,
+        emergencyFund: p.emergencyFund || 0,
       })),
       current: game.current,
       turn: game.turn,
@@ -377,6 +379,7 @@ function resumeGame() {
       totalTaxPaid: cfg.totalTaxPaid, totalCharity: cfg.totalCharity,
       investmentsBought: cfg.investmentsBought, bankruptcies: cfg.bankruptcies,
       credit: cfg.credit ?? 700,
+      emergencyFund: cfg.emergencyFund || 0,
     };
   });
   const cardAt = (cards, idx) => (idx >= 0 ? cards[idx] : null);
@@ -592,6 +595,10 @@ async function onPayday(p) {
   p.totalPassiveEarned += passive;
   sfx.coin();
 
+  // صندوق اضطراری هر بار حقوق ۱٪ سود می‌گیرد
+  const fundInterest = Math.round((p.emergencyFund || 0) * 0.01);
+  if (fundInterest > 0) p.emergencyFund += fundInterest;
+
   if (p.cash < 0) await handleDebt(p);
 
   // رویدادهای سراسری فعال هر بار حقوق کم می‌شوند
@@ -615,6 +622,7 @@ async function onPayday(p) {
     (passive > 0 ? `<div class="st green">درآمد غیرفعال +${fmt(passive)}</div>` : '') +
     (game.event && game.event.passiveMult ? `<div class="st red">رویداد فعال: ${game.event.title}</div>` : '') +
     `<div class="st red">هزینه‌ها -${fmt(p.expenses)}</div>` +
+    (fundInterest > 0 ? `<div class="st green">سود صندوق اضطراری +${fmt(fundInterest)}</div>` : '') +
     `<div class="st"><b>نقدینگی فعلی: ${fmt(p.cash)}</b></div>` +
     `<div class="tip">${escaped ? 'درآمد غیرفعال از هزینه‌ها بیشتر شد — انجامش دادی!' : 'حقوقت را بگیر، قبض‌هایت را بپرداز و درآمد غیرفعالت را جیب بزن. هر حقوق یک درس جریان نقدی است.'}</div>`;
 
@@ -723,6 +731,7 @@ function retire(p) {
   p.assets = [];
   p.loans = [];
   p.passiveIncome = 0;
+  p.emergencyFund = 0;
   p.expenseItems = [];
   p.expenses = 0;
   if (p.isHuman) log(`${p.name} ورشکسته شد و تماشاچی شد.`);
@@ -760,6 +769,35 @@ function addMonthlyExpense(p, amt, name) {
     recalcExpenses(p);
   }
   return add;
+}
+
+/* پرداخت هزینه غافلگیرکننده: اول از صندوق اضطراری، بعد از نقدینگی */
+function payCost(p, amount) {
+  const fromFund = Math.min(p.emergencyFund || 0, amount);
+  p.emergencyFund = (p.emergencyFund || 0) - fromFund;
+  p.cash -= (amount - fromFund);
+  return { fromFund, fromCash: amount - fromFund };
+}
+
+/* هدف صندوق اضطراری: سه برابر هزینه‌های ماهانه */
+function fundTarget(p) {
+  return Math.round((p.expenses || p.baseExpenses) * 3);
+}
+
+function depositEmergency(p, amount) {
+  const amt = Math.min(Math.round(amount), Math.max(0, p.cash));
+  if (amt <= 0) return 0;
+  p.cash -= amt;
+  p.emergencyFund = (p.emergencyFund || 0) + amt;
+  return amt;
+}
+
+function withdrawEmergency(p, amount) {
+  const amt = Math.min(Math.round(amount), p.emergencyFund || 0);
+  if (amt <= 0) return 0;
+  p.emergencyFund -= amt;
+  p.cash += amt;
+  return amt;
 }
 
 function scaleIncome(p, n) {
@@ -1074,7 +1112,7 @@ async function applyEvent(card, trigger) {
   } else if (card.cost) {
     for (const x of targets) {
       const amt = scaleIncome(x, card.cost);
-      x.cash -= amt;
+      payCost(x, amt);
       if (x.cash < 0) await handleDebt(x);
       sfx.bad();
     }
@@ -1094,16 +1132,17 @@ async function onExpense(p) {
   const deck = game.decks.expense;
   const card = deck.length ? deck.shift() : (deck.push(...shuffle(EXPENSE_CARDS)), deck.shift());
   const cost = scaleIncome(p, card.cash);
-  p.cash -= cost;
+  const { fromFund } = payCost(p, cost);
   if (p.cash < 0) await handleDebt(p);
   sfx.bad();
   const html = `
     <div class="card-title">${card.title}</div>
     <div class="card-desc">${card.desc}</div>
     <div class="card-stats"><div><span>هزینه</span><b>-${fmt(cost)}</b></div></div>
+    ${fromFund > 0 ? `<div class="card-stats"><div><span>پرداخت از صندوق اضطراری</span><b class="green">${fmt(fromFund)}</b></div></div>` : ''}
     <div class="tip"><b>درس:</b> ${card.lesson}</div>`;
   if (p.isHuman) await showInfo('هزینه غافلگیرکننده', html, ['باشه']);
-  else log(`${p.name} ${fmt(cost)} برای ${card.title} می‌پردازد.`);
+  else log(`${p.name} ${fmt(cost)} برای ${card.title} می‌پردازد${fromFund > 0 ? ` (${fmt(fromFund)} از صندوق اضطراری)` : ''}.`);
 }
 
 async function onTax(p) {
@@ -1157,13 +1196,14 @@ async function onBaby(p) {
   const deck = game.decks.baby;
   const card = deck.length ? deck.shift() : (deck.push(...shuffle(BABY_CARDS)), deck.shift());
   const hospital = scaleIncome(p, card.cash);
-  p.cash -= hospital;
+  const { fromFund } = payCost(p, hospital);
   if (p.cash < 0) await handleDebt(p);
   const added = addMonthlyExpense(p, card.monthly, card.title);
   sfx.bad();
   const html = `
     <div class="card-title">${card.title}</div>
     <div class="card-desc">${card.desc}<br>قبض بیمارستان <b>-${fmt(hospital)}</b>، هزینه خانواده <b>+${fmt(added)}/ماه</b>.</div>
+    ${fromFund > 0 ? `<div class="card-stats"><div><span>پرداخت از صندوق اضطراری</span><b class="green">${fmt(fromFund)}</b></div></div>` : ''}
     <div class="tip"><b>درس:</b> ${card.lesson}</div>`;
   if (p.isHuman) await showInfo('خانواده در حال رشد', html, ['باشه']);
   else log(`خانواده ${p.name} بزرگ‌تر شد: +${fmt(added)}/ماه هزینه.`);
@@ -1296,7 +1336,7 @@ async function endGame(w, reason) {
 function netWorth(p) {
   const assets = p.assets.reduce((s, a) => s + a.value, 0);
   const loans = p.loans.reduce((s, l) => s + l.principal, 0);
-  return p.cash + assets - loans;
+  return p.cash + (p.emergencyFund || 0) + assets - loans;
 }
 
 /* ---------------- نمایش ---------------- */
@@ -1463,6 +1503,12 @@ function openPortfolio() {
       <div><span>ارزش خالص</span><b>${fmt(netWorth(p))}</b></div>
       <div><span>وام‌ها</span><b>${fmt(p.loans.reduce((s, l) => s + l.principal, 0))}</b></div>
       <div><span>امتیاز اعتبار</span><b>${p.credit ?? 700}</b></div>
+      <div><span>صندوق اضطراری</span><b>${fmt(p.emergencyFund || 0)}</b></div>
+    </div>
+    <div class="fund-row">
+      <span>صندوق اضطراری (هدف ${fmt(fundTarget(p))}) — هزینه‌های غافلگیرکننده اول از اینجا پرداخت می‌شوند</span>
+      <button class="btn small ok" data-act="deposit">واریز ۱۰۰ دلار</button>
+      <button class="btn small" data-act="withdraw">برداشت ۱۰۰ دلار</button>
     </div>
     <h3>هزینه‌ها <span class="hint">هر ماه چه مبلغی خارج می‌شود</span></h3>
     ${expensesHtml}
@@ -1527,6 +1573,16 @@ function openPortfolio() {
       log(`${p.name} از بانک وام ${fmt(opt.amount)} دلاری می‌گیرد (-${fmt(opt.monthly)}/ماه${opt.kind === 'interestOnly' ? '، فقط سود' : ''}).`);
       openPortfolio();
     }
+  });
+  body.querySelector('[data-act="deposit"]').addEventListener('click', () => {
+    const amt = depositEmergency(p, 100);
+    if (amt > 0) { sfx.coin(); log(`${p.name} ${fmt(amt)} را به صندوق اضطراری منتقل می‌کند.`); }
+    openPortfolio();
+  });
+  body.querySelector('[data-act="withdraw"]').addEventListener('click', () => {
+    const amt = withdrawEmergency(p, 100);
+    if (amt > 0) { sfx.coin(); log(`${p.name} ${fmt(amt)} از صندوق اضطراری برداشت می‌کند.`); }
+    openPortfolio();
   });
   body.querySelector('[data-act="close"]').addEventListener('click', () => hide('card-modal'));
 }
