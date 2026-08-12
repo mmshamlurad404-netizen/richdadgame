@@ -65,6 +65,8 @@ header {
 .btn.cancel:hover { box-shadow: 0 4px 0 #22385a, 0 8px 18px rgba(0,0,0,0.4); }
 .btn.ok { background: linear-gradient(180deg, #35d07f, #1fae63); color: #062315; box-shadow: 0 3px 0 #13804a, 0 6px 14px rgba(0,0,0,0.35); }
 .btn.small { padding: 6px 12px; font-size: 0.8rem; }
+.btn.repay { background: linear-gradient(180deg, #f0a35a, #d97b26); color: #231105; box-shadow: 0 3px 0 #a95c14, 0 6px 14px rgba(0,0,0,0.35); }
+.btn.repay:hover { box-shadow: 0 4px 0 #a95c14, 0 8px 18px rgba(0,0,0,0.4); }
 .header-btn {
   background: rgba(255, 255, 255, 0.07);
   color: var(--ink);

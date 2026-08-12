@@ -268,6 +268,145 @@ const b6 = loadGame(htmlDir, jsDir, { [key]: JSON.stringify(oldSave3) });
 b6.document.getElementById('resume-btn').click();
 check(evalIn(b6.window, 'game.players[0].livingTicks') === 0, 'old saves backfill living ticks to 0');
 
+/* ================= F: player-to-player loans ================= */
+evalIn(window, `(() => {
+  const lender = game.players[0];
+  const borrower = game.players[1];
+  window.__peer = { lenderName: lender.name, borrowerName: borrower.name };
+})()`);
+const peerNames = evalIn(window, 'window.__peer');
+
+/* a lender with liquidity accepts and the cash moves */
+evalIn(window, `(() => {
+  const lender = game.players[0];
+  const borrower = game.players[1];
+  lender.cash = 5000; borrower.cash = 100;
+  const res = givePeerLoan(lender, borrower, 1000);
+  window.__gl = { res, lenderCash: lender.cash, borrowerCash: borrower.cash,
+    lRecv: lender.peerReceivables.length, bLoans: borrower.peerLoans.length,
+    monthly: borrower.peerLoans[0].monthly };
+})()`);
+const gl = evalIn(window, 'window.__gl');
+check(gl.res && gl.res.principal === 1000, 'givePeerLoan returns the principal');
+check(gl.lenderCash === 4000 && gl.borrowerCash === 1100, 'cash moves from lender to borrower');
+check(gl.lRecv === 1 && gl.bLoans === 1, 'records exist on both sides');
+check(gl.monthly === Math.round(1000 * 0.06), 'monthly interest is 6% of the principal');
+
+/* aiLends: rejects when the lender lacks liquidity or exposure */
+evalIn(window, `(() => {
+  const lender = game.players[0];
+  const prev = lender.cash;
+  lender.cash = 100;
+  window.__al1 = aiLends(lender, 1000);
+  lender.cash = prev;
+  lender.peerReceivables.push({ borrower: 'x', principal: 1, monthly: 1 });
+  lender.peerReceivables.push({ borrower: 'y', principal: 1, monthly: 1 });
+  window.__al2 = aiLends(lender, 100);
+  lender.peerReceivables = [];
+})()`);
+check(evalIn(window, 'window.__al1') === false, 'aiLends refuses with low liquidity');
+check(evalIn(window, 'window.__al2') === false, 'aiLends refuses at max exposure');
+
+/* expenses include peer interest */
+evalIn(window, `(() => {
+  const borrower = game.players[1];
+  borrower.loans = []; borrower.insurance = [];
+  borrower.expenseItems = [{ name: LIVING_EXPENSE_NAME, monthly: borrower.baseExpenses }];
+  recalcExpenses(borrower);
+  window.__pi = { total: borrower.expenses, interest: peerInterest(borrower), base: borrower.baseExpenses };
+})()`);
+const pi = evalIn(window, 'window.__pi');
+check(pi.interest === 60 && pi.total === pi.interest + pi.base, 'recalcExpenses includes peer interest');
+
+/* net worth counts the receivable as an asset and the peer loan as a liability */
+evalIn(window, `(() => {
+  const lender = game.players[0];
+  const lr = lender.peerReceivables[0];
+  const assets = lender.assets.reduce((s, a) => s + a.value, 0);
+  const loans = lender.loans.reduce((s, l) => s + l.principal, 0);
+  const expected = lender.cash + (lender.emergencyFund || 0) + assets - loans + (lr ? lr.principal : 0);
+  window.__nl = netWorth(lender) === expected;
+
+  const borrower = game.players[1];
+  const bl = borrower.peerLoans[0];
+  const bAssets = borrower.assets.reduce((s, a) => s + a.value, 0);
+  const bLoans = borrower.loans.reduce((s, l) => s + l.principal, 0);
+  const bExpected = borrower.cash + (borrower.emergencyFund || 0) + bAssets - bLoans - (bl ? bl.principal : 0);
+  window.__nb = netWorth(borrower) === bExpected;
+})()`);
+const nl = evalIn(window, 'window.__nl');
+const nb = evalIn(window, 'window.__nb');
+check(nl, 'lender net worth adds the receivable');
+check(nb, 'borrower net worth subtracts the peer loan');
+
+/* repay returns the principal to the lender and clears both records */
+evalIn(window, `(() => {
+  const lender = game.players[0];
+  const borrower = game.players[1];
+  borrower.cash = 5000;
+  const loan = borrower.peerLoans[0];
+  const ok2 = repayPeerLoan(borrower, loan);
+  window.__rp = { ok2, lenderCash: lender.cash, borrowerCash: borrower.cash,
+    lRecv: lender.peerReceivables.length, bLoans: borrower.peerLoans.length };
+})()`);
+const rp = evalIn(window, 'window.__rp');
+check(rp.ok2 === true, 'repayPeerLoan succeeds with sufficient cash');
+check(rp.lRecv === 0 && rp.bLoans === 0, 'repayment clears records on both sides');
+
+/* a borrower who cannot afford the principal cannot repay */
+evalIn(window, `(() => {
+  const lender = game.players[0];
+  const borrower = game.players[1];
+  lender.cash = 5000; borrower.cash = 50;
+  givePeerLoan(lender, borrower, 1000);
+  borrower.cash = 50;
+  const ok3 = repayPeerLoan(borrower, borrower.peerLoans[0]);
+  window.__rpf = { ok3, bLoans: borrower.peerLoans.length };
+})()`);
+const rpf = evalIn(window, 'window.__rpf');
+check(rpf.ok3 === false && rpf.bLoans === 1, 'repayPeerLoan fails without enough cash');
+
+/* lender collects monthly interest on their payday */
+evalIn(window, `(() => {
+  const lender = game.players[0];
+  lender.isHuman = false; lender.salary = 0; lender.passiveIncome = 0; lender.downsized = 0;
+  lender.expenseItems = []; lender.baseExpenses = 0; lender.expenses = 0;
+  lender.livingTicks = 0;
+  lender.cash = 1000;
+  lender.peerReceivables = [{ borrower: 'z', principal: 1000, monthly: 60 }];
+  window.__pcBefore = lender.cash;
+  return lender.cash;
+})()`);
+const pcBefore = evalIn(window, 'window.__pcBefore');
+evalIn(window, `(() => {
+  const lender = game.players[0];
+  onPayday(lender);
+  window.__pcAfter = lender.cash;
+})()`);
+const pcAfter = evalIn(window, 'window.__pcAfter');
+check(pcAfter === pcBefore + 60, 'lender collects peer interest on payday');
+evalIn(window, `(() => { const lender = game.players[0]; lender.peerReceivables = []; })()`);
+
+/* retiring a borrower drops the lender receivable and forgiving a lender's loan clears the borrower record */
+evalIn(window, `(() => {
+  const lender = game.players[0];
+  const borrower = game.players[1];
+  lender.cash = 5000; borrower.cash = 2000;
+  lender.bankrupt = false; borrower.bankrupt = false;
+  givePeerLoan(lender, borrower, 1000);
+  retire(borrower);
+  window.__rb = { lRecv: lender.peerReceivables.length };
+  borrower.bankrupt = false;
+  givePeerLoan(lender, borrower, 500);
+  lender.bankrupt = false;
+  retire(lender);
+  window.__rl = { bLoans: borrower.peerLoans.length, lRecv2: lender.peerReceivables.length };
+})()`);
+const rb = evalIn(window, 'window.__rb');
+const rl = evalIn(window, 'window.__rl');
+check(rb.lRecv === 0, 'retiring the borrower drops the lender receivable');
+check(rl.bLoans === 0 && rl.lRecv2 === 0, 'retiring the lender forgives the borrower loan');
+
 /* ================= persistence ================= */
 evalIn(window, `(() => {
   const p = game.players[0];
@@ -288,6 +427,29 @@ delete oldSave.players[0].emergencyFund;
 const b2 = loadGame(htmlDir, jsDir, { [key]: JSON.stringify(oldSave) });
 b2.document.getElementById('resume-btn').click();
 check(evalIn(b2.window, 'game.players[0].emergencyFund') === 0, 'old saves backfill emergency fund to 0');
+
+/* peer loans persist and resume */
+evalIn(window, `(() => {
+  const p = game.players[0];
+  p.bankrupt = false;
+  p.peerLoans = [{ lender: 'x', principal: 500, monthly: 30, kind: 'peer' }];
+  p.peerReceivables = [{ borrower: 'y', principal: 800, monthly: 48 }];
+  saveGame();
+})()`);
+const savedP = JSON.parse(window.localStorage.getItem(key));
+check(savedP.players[0].peerLoans.length === 1, 'peer loans persisted in save');
+const bp = loadGame(htmlDir, jsDir, { [key]: JSON.stringify(savedP) });
+bp.document.getElementById('resume-btn').click();
+check(evalIn(bp.window, 'game.players[0].peerLoans[0].principal') === 500, 'resume restores peer loans');
+check(evalIn(bp.window, 'game.players[0].peerReceivables[0].principal') === 800, 'resume restores peer receivables');
+
+/* old saves without the field backfill to [] */
+const oldSaveP = JSON.parse(JSON.stringify(savedP));
+delete oldSaveP.players[0].peerLoans;
+const bp2 = loadGame(htmlDir, jsDir, { [key]: JSON.stringify(oldSaveP) });
+bp2.document.getElementById('resume-btn').click();
+const backfilled = evalIn(bp2.window, 'Array.isArray(game.players[0].peerLoans) && game.players[0].peerLoans.length === 0');
+check(backfilled, 'old saves backfill peer loans to []');
 
 console.log(ok ? 'V8A EMERGENCY FUND OK' : 'V8A EMERGENCY FUND FAIL');
 process.exit(ok ? 0 : 1);

@@ -198,6 +198,7 @@ const LESSONS = {
   credit: 'Your credit score sets your interest rate. Repay loans to raise it; bankruptcy and restructure drop it. Good credit borrows cheaper.',
   needs: 'Needs are things you must have. Wants are nice to have. Spend on needs first.',
   promote: 'Career growth raises your salary — but lifestyle creep raises expenses too. What matters is the gap you keep and invest.',
+  peerloan: 'A player-to-player loan is cash from another player at a friendlier rate. Interest still flows out every month — and the lender expects the principal back.',
   bankrupt: 'When bills exceed every resource, you are bankrupt. Fire-sale, restructure or retire — bankruptcy is expensive, so plan to avoid it.',
 };
 

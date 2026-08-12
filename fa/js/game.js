@@ -243,6 +243,7 @@ function beginGame(players, difficulty, daily, mode) {
       emergencyFund: 0,
       insurance: [],
       livingTicks: 0,
+      peerLoans: [],
     };
   });
 
@@ -330,6 +331,8 @@ function saveGame() {
         emergencyFund: p.emergencyFund || 0,
         insurance: p.insurance || [],
         livingTicks: p.livingTicks || 0,
+        peerLoans: p.peerLoans || [],
+        peerReceivables: p.peerReceivables || [],
       })),
       current: game.current,
       turn: game.turn,
@@ -386,6 +389,8 @@ function resumeGame() {
       emergencyFund: cfg.emergencyFund || 0,
       insurance: cfg.insurance || [],
       livingTicks: cfg.livingTicks || 0,
+      peerLoans: cfg.peerLoans || [],
+      peerReceivables: cfg.peerReceivables || [],
     };
   });
   const cardAt = (cards, idx) => (idx >= 0 ? cards[idx] : null);
@@ -605,6 +610,10 @@ async function onPayday(p) {
   const fundInterest = Math.round((p.emergencyFund || 0) * 0.01);
   if (fundInterest > 0) p.emergencyFund += fundInterest;
 
+  // سود وام‌هایی که به بازیکن‌های دیگر داده‌ایم دریافت می‌شود
+  const peerCollected = (p.peerReceivables || []).reduce((s, r) => s + r.monthly, 0);
+  if (peerCollected > 0) p.cash += peerCollected;
+
   // هزینهٔ زندگی در یک بازهٔ ثابت از حقوق‌ها بالا می‌رود
   p.livingTicks = (p.livingTicks || 0) + 1;
   let livingRaise = 0;
@@ -746,10 +755,26 @@ function retire(p) {
   p.cash = 0;
   p.assets = [];
   p.loans = [];
+  p.peerLoans = [];
+  p.peerReceivables = [];
   p.passiveIncome = 0;
   p.emergencyFund = 0;
   p.expenseItems = [];
   p.expenses = 0;
+  // وام‌های معوقی که p وام‌دهنده بوده است بخشیده می‌شود؛
+  // وام‌هایی که p وام‌گیرنده بوده از دست وام‌دهندگان دیگر حذف می‌شود
+  game.players.forEach(x => {
+    if (x === p || x.bankrupt) return;
+    const owed = (x.peerLoans || []).filter(l => l.lender === p.name);
+    if (owed.length) {
+      x.peerLoans = (x.peerLoans || []).filter(l => l.lender !== p.name);
+      recalcExpenses(x);
+    }
+    const lent = (x.peerReceivables || []).filter(r => r.borrower === p.name);
+    if (lent.length) {
+      x.peerReceivables = (x.peerReceivables || []).filter(r => r.borrower !== p.name);
+    }
+  });
   if (p.isHuman) log(`${p.name} ورشکسته شد و تماشاچی شد.`);
   else log(`${p.name} ورشکست شد و از بازی خارج شد.`);
   saveGame();
@@ -772,7 +797,7 @@ async function checkElimination() {
 
 function recalcExpenses(p) {
   const loanInterest = p.loans.reduce((s, l) => s + l.monthly, 0);
-  p.expenses = p.expenseItems.reduce((s, it) => s + it.monthly, 0) + loanInterest + insurancePremium(p);
+  p.expenses = p.expenseItems.reduce((s, it) => s + it.monthly, 0) + loanInterest + peerInterest(p) + insurancePremium(p);
 }
 
 function addMonthlyExpense(p, amt, name) {
@@ -895,6 +920,50 @@ function repayLoan(p, loan) {
     return true;
   }
   return false;
+}
+
+/* ---------------- وام بین بازیکن‌ها ---------------- */
+const PEER_RATE = 0.06; // از بانک دوستانه‌تر: ۶٪ ماهانه
+
+function peerInterest(p) {
+  return (p.peerLoans || []).reduce((s, l) => s + l.monthly, 0);
+}
+
+/* آیا وام‌دهندهٔ هوش مصنوعی این درخواست را می‌پذیرد؟ نقدینگی را حفظ و ریسک را محدود می‌کند. */
+function aiLends(lender, amount) {
+  if (lender.cash < amount * 1.5) return false;
+  if ((lender.peerReceivables || []).length >= 2) return false;
+  return true;
+}
+
+/* یک بازیکن به بازیکن دیگر با نرخ دوستانه وام می‌دهد. { principal, monthly } یا در صورت امتناع null. */
+function givePeerLoan(lender, borrower, amount) {
+  if (lender.cash < amount) return null;
+  const monthly = Math.round(amount * PEER_RATE);
+  lender.cash -= amount;
+  lender.peerReceivables = lender.peerReceivables || [];
+  lender.peerReceivables.push({ borrower: borrower.name, principal: amount, monthly });
+  borrower.cash += amount;
+  borrower.peerLoans = borrower.peerLoans || [];
+  borrower.peerLoans.push({ lender: lender.name, principal: amount, monthly, kind: 'peer' });
+  recalcExpenses(borrower);
+  saveGame();
+  return { principal: amount, monthly };
+}
+
+/* وام‌گیرنده اصل پول را برمی‌گرداند؛ وام‌دهنده دریافتش می‌کند. */
+function repayPeerLoan(borrower, loan) {
+  if (borrower.cash < loan.principal) return false;
+  borrower.cash -= loan.principal;
+  borrower.peerLoans = borrower.peerLoans.filter(l => l !== loan);
+  const lender = game.players.find(x => x.name === loan.lender);
+  if (lender) {
+    lender.cash += loan.principal;
+    lender.peerReceivables = (lender.peerReceivables || []).filter(r => !(r.borrower === borrower.name && r.principal === loan.principal));
+  }
+  recalcExpenses(borrower);
+  saveGame();
+  return true;
 }
 
 function drawCat(cat) {
@@ -1449,7 +1518,9 @@ async function endGame(w, reason) {
 function netWorth(p) {
   const assets = p.assets.reduce((s, a) => s + a.value, 0);
   const loans = p.loans.reduce((s, l) => s + l.principal, 0);
-  return p.cash + (p.emergencyFund || 0) + assets - loans;
+  const peerBorrowed = (p.peerLoans || []).reduce((s, l) => s + l.principal, 0);
+  const peerLent = (p.peerReceivables || []).reduce((s, r) => s + r.principal, 0);
+  return p.cash + (p.emergencyFund || 0) + assets - loans - peerBorrowed + peerLent;
 }
 
 /* ---------------- گزارش پایان بازی ---------------- */
@@ -1463,6 +1534,7 @@ function incomeStatement(p) {
   rows.push(['هزینه‌های زندگی', `-${fmt(p.baseExpenses)}`, 'red']);
   if (prem > 0) rows.push(['حق بیمه', `-${fmt(prem)}`, 'red']);
   if (loanInterest > 0) rows.push(['سود وام‌ها', `-${fmt(loanInterest)}`, 'red']);
+  if (peerInterest(p) > 0) rows.push(['سود وام بین بازیکن‌ها', `-${fmt(peerInterest(p))}`, 'red']);
   return `
     <div class="report">
       <h4>صورت درآمد</h4>
@@ -1475,13 +1547,17 @@ function incomeStatement(p) {
 function balanceSheet(p) {
   const assetsVal = p.assets.reduce((s, a) => s + a.value, 0);
   const loans = p.loans.reduce((s, l) => s + l.principal, 0);
+  const peerBorrowed = (p.peerLoans || []).reduce((s, l) => s + l.principal, 0);
+  const peerLent = (p.peerReceivables || []).reduce((s, r) => s + r.principal, 0);
   return `
     <div class="report">
       <h4>ترازنامه</h4>
       <div class="rp-row"><span>نقدینگی</span><b>${fmt(p.cash)}</b></div>
       <div class="rp-row"><span>صندوق اضطراری</span><b>${fmt(p.emergencyFund || 0)}</b></div>
       <div class="rp-row"><span>دارایی‌ها (${p.assets.length})</span><b>${fmt(assetsVal)}</b></div>
+      ${peerLent > 0 ? `<div class="rp-row"><span>وام‌های داده‌شده</span><b>${fmt(peerLent)}</b></div>` : ''}
       <div class="rp-row"><span>وام‌ها</span><b class="red">-${fmt(loans)}</b></div>
+      ${peerBorrowed > 0 ? `<div class="rp-row"><span>وام‌های بین بازیکن‌ها</span><b class="red">-${fmt(peerBorrowed)}</b></div>` : ''}
       <div class="rp-row total"><span>ارزش خالص</span><b>${fmt(netWorth(p))}</b></div>
     </div>`;
 }
@@ -1879,6 +1955,23 @@ function openTradeView() {
         <button class="btn small ok" data-offer="${a.name}">پیشنهاد</button>
       </div>`).join('')
     : '<div class="empty">دارایی‌ای برای معامله نداری.</div>';
+  const peerBorrowHtml = (p.peerLoans || []).length
+    ? p.peerLoans.map((l, i) => `
+      <div class="prow2">
+        <div class="p2name"><b>وام بین بازیکن از ${l.lender}</b><span>${fmt(l.monthly)}/ماه سود</span></div>
+        <div class="p2val">${fmt(l.principal)}</div>
+        <button class="btn small repay" data-prepay="${i}">پرداخت</button>
+      </div>`).join('')
+    : '<div class="empty">وام بین بازیکن نداری. با نرخ دوستانه ۶٪ از بازیکن دیگر قرض بگیر.</div>';
+  const peerLendHtml = others.map(o => {
+    const gave = (p.peerReceivables || []).filter(r => r.borrower === o.name).reduce((s, r) => s + r.principal, 0);
+    const accepted = aiLends(o, 500);
+    return `
+      <div class="ins-row">
+        <span><b>${o.name}</b> · نقدینگی ${fmt(o.cash)}${gave > 0 ? ` · داده‌ای ${fmt(gave)}` : ''}</span>
+        <button class="btn small ok" data-pborrow="${o.name}|1000" ${accepted ? '' : 'disabled'}>قرض $1000</button>
+      </div>`;
+  }).join('');
   const theirs = others.map(o => `
     <h3>${o.name} <span class="hint">نقدینگی ${fmt(o.cash)}</span></h3>
     ${o.assets.length
@@ -1895,6 +1988,11 @@ function openTradeView() {
     ${mine}
     <h3>خرید از دیگران</h3>
     ${theirs}
+    <h3>وام بین بازیکن‌ها <span class="hint">با ۶٪ در ماه قرض بگیر — وام‌دهنده باید نقدینگی داشته باشد</span></h3>
+    <h4>وام‌های تو</h4>
+    ${peerBorrowHtml}
+    <h4>قرض گرفتن از بازیکن دیگر</h4>
+    ${peerLendHtml}
     <div class="card-actions2">
       <button class="btn cancel" data-act="close">بستن</button>
     </div>`;
@@ -1910,6 +2008,29 @@ function openTradeView() {
     const asset = seller.assets.find(a => a.name === aname);
     if (seller && asset) await offerBuy(p, asset, seller, asset.value);
     openTradeView();
+  }));
+  body.querySelectorAll('[data-pborrow]').forEach(b => b.addEventListener('click', async () => {
+    const [lname, amt] = b.dataset.pborrow.split('|');
+    const lender = game.players.find(x => x.name === lname);
+    if (!lender || lender.bankrupt) return;
+    if (!aiLends(lender, +amt)) { log(`${lender.name} این وام را نمی‌پذیرد — نقدینگی کافی ندارد.`); return; }
+    const res = givePeerLoan(lender, p, +amt);
+    if (res) {
+      sfx.coin();
+      log(`${p.name} از ${lender.name} ${fmt(res.principal)} قرض گرفت (-${fmt(res.monthly)}/ماه سود).`);
+      openTradeView();
+    }
+  }));
+  body.querySelectorAll('[data-prepay]').forEach(b => b.addEventListener('click', async () => {
+    const loan = (p.peerLoans || [])[+b.dataset.prepay];
+    if (!loan) return;
+    if (repayPeerLoan(p, loan)) {
+      sfx.coin();
+      log(`${p.name} ${fmt(loan.principal)} را به ${loan.lender} برمی‌گرداند.`);
+      openTradeView();
+    } else {
+      log(`${p.name} هنوز نمی‌تواند وام بین بازیکن را پرداخت کند.`);
+    }
   }));
   body.querySelector('[data-act="close"]').addEventListener('click', () => hide('card-modal'));
 }

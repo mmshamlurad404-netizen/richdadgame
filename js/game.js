@@ -243,6 +243,7 @@ function beginGame(players, difficulty, daily, mode) {
       emergencyFund: 0,
       insurance: [],
       livingTicks: 0,
+      peerLoans: [],
     };
   });
 
@@ -330,6 +331,8 @@ function saveGame() {
         emergencyFund: p.emergencyFund || 0,
         insurance: p.insurance || [],
         livingTicks: p.livingTicks || 0,
+        peerLoans: p.peerLoans || [],
+        peerReceivables: p.peerReceivables || [],
       })),
       current: game.current,
       turn: game.turn,
@@ -386,6 +389,8 @@ function resumeGame() {
       emergencyFund: cfg.emergencyFund || 0,
       insurance: cfg.insurance || [],
       livingTicks: cfg.livingTicks || 0,
+      peerLoans: cfg.peerLoans || [],
+      peerReceivables: cfg.peerReceivables || [],
     };
   });
   const cardAt = (cards, idx) => (idx >= 0 ? cards[idx] : null);
@@ -605,6 +610,10 @@ async function onPayday(p) {
   const fundInterest = Math.round((p.emergencyFund || 0) * 0.01);
   if (fundInterest > 0) p.emergencyFund += fundInterest;
 
+  // collect interest on loans lent to other players
+  const peerCollected = (p.peerReceivables || []).reduce((s, r) => s + r.monthly, 0);
+  if (peerCollected > 0) p.cash += peerCollected;
+
   // cost of living rises on a fixed payday interval
   p.livingTicks = (p.livingTicks || 0) + 1;
   let livingRaise = 0;
@@ -746,10 +755,26 @@ function retire(p) {
   p.cash = 0;
   p.assets = [];
   p.loans = [];
+  p.peerLoans = [];
+  p.peerReceivables = [];
   p.passiveIncome = 0;
   p.emergencyFund = 0;
   p.expenseItems = [];
   p.expenses = 0;
+  // forgive outstanding peer loans where p was the lender, and drop
+  // receivables from other lenders that p can no longer repay
+  game.players.forEach(x => {
+    if (x === p || x.bankrupt) return;
+    const owed = (x.peerLoans || []).filter(l => l.lender === p.name);
+    if (owed.length) {
+      x.peerLoans = (x.peerLoans || []).filter(l => l.lender !== p.name);
+      recalcExpenses(x);
+    }
+    const lent = (x.peerReceivables || []).filter(r => r.borrower === p.name);
+    if (lent.length) {
+      x.peerReceivables = (x.peerReceivables || []).filter(r => r.borrower !== p.name);
+    }
+  });
   if (p.isHuman) log(`${p.name} declares bankruptcy and becomes a spectator.`);
   else log(`${p.name} goes bankrupt and leaves the game.`);
   saveGame();
@@ -772,7 +797,7 @@ async function checkElimination() {
 
 function recalcExpenses(p) {
   const loanInterest = p.loans.reduce((s, l) => s + l.monthly, 0);
-  p.expenses = p.expenseItems.reduce((s, it) => s + it.monthly, 0) + loanInterest + insurancePremium(p);
+  p.expenses = p.expenseItems.reduce((s, it) => s + it.monthly, 0) + loanInterest + peerInterest(p) + insurancePremium(p);
 }
 
 function addMonthlyExpense(p, amt, name) {
@@ -895,6 +920,50 @@ function repayLoan(p, loan) {
     return true;
   }
   return false;
+}
+
+/* ---------------- player-to-player loans ---------------- */
+const PEER_RATE = 0.06; // friendlier than the bank: 6% monthly
+
+function peerInterest(p) {
+  return (p.peerLoans || []).reduce((s, l) => s + l.monthly, 0);
+}
+
+/* Would an AI lender accept this request? Keeps liquidity and caps exposure. */
+function aiLends(lender, amount) {
+  if (lender.cash < amount * 1.5) return false;
+  if ((lender.peerReceivables || []).length >= 2) return false;
+  return true;
+}
+
+/* One player lends to another at the peer rate. Returns { principal, monthly } or null if refused. */
+function givePeerLoan(lender, borrower, amount) {
+  if (lender.cash < amount) return null;
+  const monthly = Math.round(amount * PEER_RATE);
+  lender.cash -= amount;
+  lender.peerReceivables = lender.peerReceivables || [];
+  lender.peerReceivables.push({ borrower: borrower.name, principal: amount, monthly });
+  borrower.cash += amount;
+  borrower.peerLoans = borrower.peerLoans || [];
+  borrower.peerLoans.push({ lender: lender.name, principal: amount, monthly, kind: 'peer' });
+  recalcExpenses(borrower);
+  saveGame();
+  return { principal: amount, monthly };
+}
+
+/* Borrower repays the principal; the lender receives it back. */
+function repayPeerLoan(borrower, loan) {
+  if (borrower.cash < loan.principal) return false;
+  borrower.cash -= loan.principal;
+  borrower.peerLoans = borrower.peerLoans.filter(l => l !== loan);
+  const lender = game.players.find(x => x.name === loan.lender);
+  if (lender) {
+    lender.cash += loan.principal;
+    lender.peerReceivables = (lender.peerReceivables || []).filter(r => !(r.borrower === borrower.name && r.principal === loan.principal));
+  }
+  recalcExpenses(borrower);
+  saveGame();
+  return true;
 }
 
 function drawCat(cat) {
@@ -1449,7 +1518,9 @@ async function endGame(w, reason) {
 function netWorth(p) {
   const assets = p.assets.reduce((s, a) => s + a.value, 0);
   const loans = p.loans.reduce((s, l) => s + l.principal, 0);
-  return p.cash + (p.emergencyFund || 0) + assets - loans;
+  const peerBorrowed = (p.peerLoans || []).reduce((s, l) => s + l.principal, 0);
+  const peerLent = (p.peerReceivables || []).reduce((s, r) => s + r.principal, 0);
+  return p.cash + (p.emergencyFund || 0) + assets - loans - peerBorrowed + peerLent;
 }
 
 /* ---------------- end-of-game report ---------------- */
@@ -1463,6 +1534,7 @@ function incomeStatement(p) {
   rows.push(['Living expenses', `-${fmt(p.baseExpenses)}`, 'red']);
   if (prem > 0) rows.push(['Insurance premiums', `-${fmt(prem)}`, 'red']);
   if (loanInterest > 0) rows.push(['Loan interest', `-${fmt(loanInterest)}`, 'red']);
+  if (peerInterest(p) > 0) rows.push(['Peer loan interest', `-${fmt(peerInterest(p))}`, 'red']);
   return `
     <div class="report">
       <h4>Income Statement</h4>
@@ -1475,13 +1547,17 @@ function incomeStatement(p) {
 function balanceSheet(p) {
   const assetsVal = p.assets.reduce((s, a) => s + a.value, 0);
   const loans = p.loans.reduce((s, l) => s + l.principal, 0);
+  const peerBorrowed = (p.peerLoans || []).reduce((s, l) => s + l.principal, 0);
+  const peerLent = (p.peerReceivables || []).reduce((s, r) => s + r.principal, 0);
   return `
     <div class="report">
       <h4>Balance Sheet</h4>
       <div class="rp-row"><span>Cash</span><b>${fmt(p.cash)}</b></div>
       <div class="rp-row"><span>Emergency fund</span><b>${fmt(p.emergencyFund || 0)}</b></div>
       <div class="rp-row"><span>Assets (${p.assets.length})</span><b>${fmt(assetsVal)}</b></div>
+      ${peerLent > 0 ? `<div class="rp-row"><span>Loans owed to you</span><b>${fmt(peerLent)}</b></div>` : ''}
       <div class="rp-row"><span>Loans</span><b class="red">-${fmt(loans)}</b></div>
+      ${peerBorrowed > 0 ? `<div class="rp-row"><span>Peer loans</span><b class="red">-${fmt(peerBorrowed)}</b></div>` : ''}
       <div class="rp-row total"><span>Net worth</span><b>${fmt(netWorth(p))}</b></div>
     </div>`;
 }
@@ -1879,6 +1955,23 @@ function openTradeView() {
         <button class="btn small ok" data-offer="${a.name}">Offer</button>
       </div>`).join('')
     : '<div class="empty">You own no assets to trade.</div>';
+  const peerBorrowHtml = (p.peerLoans || []).length
+    ? p.peerLoans.map((l, i) => `
+      <div class="prow2">
+        <div class="p2name"><b>Peer loan from ${l.lender}</b><span>${fmt(l.monthly)}/mo interest</span></div>
+        <div class="p2val">${fmt(l.principal)}</div>
+        <button class="btn small repay" data-prepay="${i}">Repay</button>
+      </div>`).join('')
+    : '<div class="empty">No peer loans. Borrow from another player at a friendlier 6% rate.</div>';
+  const peerLendHtml = others.map(o => {
+    const gave = (p.peerReceivables || []).filter(r => r.borrower === o.name).reduce((s, r) => s + r.principal, 0);
+    const accepted = aiLends(o, 500);
+    return `
+      <div class="ins-row">
+        <span><b>${o.name}</b> · cash ${fmt(o.cash)}${gave > 0 ? ` · lent ${fmt(gave)}` : ''}</span>
+        <button class="btn small ok" data-pborrow="${o.name}|1000" ${accepted ? '' : 'disabled'}>Borrow $1000</button>
+      </div>`;
+  }).join('');
   const theirs = others.map(o => `
     <h3>${o.name} <span class="hint">cash ${fmt(o.cash)}</span></h3>
     ${o.assets.length
@@ -1895,6 +1988,11 @@ function openTradeView() {
     ${mine}
     <h3>Buy from others</h3>
     ${theirs}
+    <h3>Peer loans <span class="hint">borrow at 6%/mo — the lender must have liquidity</span></h3>
+    <h4>Your loans</h4>
+    ${peerBorrowHtml}
+    <h4>Borrow from another player</h4>
+    ${peerLendHtml}
     <div class="card-actions2">
       <button class="btn cancel" data-act="close">Close</button>
     </div>`;
@@ -1910,6 +2008,29 @@ function openTradeView() {
     const asset = seller.assets.find(a => a.name === aname);
     if (seller && asset) await offerBuy(p, asset, seller, asset.value);
     openTradeView();
+  }));
+  body.querySelectorAll('[data-pborrow]').forEach(b => b.addEventListener('click', async () => {
+    const [lname, amt] = b.dataset.pborrow.split('|');
+    const lender = game.players.find(x => x.name === lname);
+    if (!lender || lender.bankrupt) return;
+    if (!aiLends(lender, +amt)) { log(`${lender.name} declines the loan — not enough liquidity.`); return; }
+    const res = givePeerLoan(lender, p, +amt);
+    if (res) {
+      sfx.coin();
+      log(`${p.name} borrows ${fmt(res.principal)} from ${lender.name} (-${fmt(res.monthly)}/mo interest).`);
+      openTradeView();
+    }
+  }));
+  body.querySelectorAll('[data-prepay]').forEach(b => b.addEventListener('click', async () => {
+    const loan = (p.peerLoans || [])[+b.dataset.prepay];
+    if (!loan) return;
+    if (repayPeerLoan(p, loan)) {
+      sfx.coin();
+      log(`${p.name} repays ${fmt(loan.principal)} to ${loan.lender}.`);
+      openTradeView();
+    } else {
+      log(`${p.name} cannot afford to repay the peer loan yet.`);
+    }
   }));
   body.querySelector('[data-act="close"]').addEventListener('click', () => hide('card-modal'));
 }
