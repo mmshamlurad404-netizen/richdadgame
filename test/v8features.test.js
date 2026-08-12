@@ -211,6 +211,63 @@ check(rep.bsHasRows && rep.bsHasTotal, 'balance sheet has rows and a total line'
 check(rep.bsNwOk, 'balance sheet net worth = cash + fund + assets - loans');
 check(rep.blk, 'reportBlock renders a player block');
 
+/* ================= D: deterministic career goals ================= */
+check(evalIn(window, `careerGoal(game.players[0]).needed`) === 1, 'first promotion needs 1 asset');
+evalIn(window, `(() => {
+  const p = game.players[0];
+  p.isHuman = false; p.careerTier = 0; p.assets = []; p.salary = p.job.salary;
+  const before = p.careerTier;
+  onCareer(p);
+  window.__cg = { before, after: p.careerTier, goal: careerGoal(p), bonus: p.cash };
+})()`);
+const cg = evalIn(window, 'window.__cg');
+check(cg.after === 0, 'no assets means no promotion');
+check(cg.goal.met === false, 'career goal reports unmet with no assets');
+evalIn(window, `(() => {
+  const p = game.players[0];
+  p.isHuman = false; p.careerTier = 0; p.assets = [];
+  p.assets.push({ name: 'A', cat: 'stock', cost: 100, value: 100, monthly: 10 });
+  p.assets.push({ name: 'B', cat: 'stock', cost: 100, value: 100, monthly: 10 });
+  onCareer(p);
+  window.__cg2 = { tier: p.careerTier, goal: careerGoal(p) };
+})()`);
+const cg2 = evalIn(window, 'window.__cg2');
+check(cg2.tier === 1, 'owning assets unlocks promotion');
+check(cg2.goal.needed === 2 && cg2.goal.met === true, 'next goal requires 2 assets and is met');
+
+/* ================= E: cost-of-living drift ================= */
+evalIn(window, `(() => {
+  const p = game.players[0];
+  p.isHuman = false; p.cash = 10000; p.salary = 0; p.passiveIncome = 0; p.downsized = 0;
+  p.livingTicks = 3; p.baseExpenses = 400;
+  p.expenseItems = [{ name: LIVING_EXPENSE_NAME, monthly: 400 }];
+  p.job.expenses = 400;
+  onPayday(p);
+  window.__cl = { ticks: p.livingTicks, base: p.baseExpenses, living: p.expenseItems[0].monthly, raise: p.baseExpenses - 400 };
+})()`);
+const cl = evalIn(window, 'window.__cl');
+check(cl.ticks === 0, 'living ticks reset after a raise');
+check(cl.base === 420 && cl.living === 420, 'living expenses rise 5% on the interval');
+check(cl.raise === 20, 'raise adds 5% of the old base');
+
+/* ticks persist and resume */
+evalIn(window, `(() => {
+  const p = game.players[0];
+  p.bankrupt = false; p.livingTicks = 2; saveGame();
+})()`);
+const saved3 = JSON.parse(window.localStorage.getItem(key));
+check(saved3.players[0].livingTicks === 2, 'living ticks persisted in save');
+const b5 = loadGame(htmlDir, jsDir, { [key]: JSON.stringify(saved3) });
+b5.document.getElementById('resume-btn').click();
+check(evalIn(b5.window, 'game.players[0].livingTicks') === 2, 'resume restores living ticks');
+
+/* old saves backfill living ticks to 0 */
+const oldSave3 = JSON.parse(JSON.stringify(saved3));
+delete oldSave3.players[0].livingTicks;
+const b6 = loadGame(htmlDir, jsDir, { [key]: JSON.stringify(oldSave3) });
+b6.document.getElementById('resume-btn').click();
+check(evalIn(b6.window, 'game.players[0].livingTicks') === 0, 'old saves backfill living ticks to 0');
+
 /* ================= persistence ================= */
 evalIn(window, `(() => {
   const p = game.players[0];

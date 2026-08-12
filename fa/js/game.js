@@ -242,6 +242,7 @@ function beginGame(players, difficulty, daily, mode) {
       credit: 700,
       emergencyFund: 0,
       insurance: [],
+      livingTicks: 0,
     };
   });
 
@@ -328,6 +329,7 @@ function saveGame() {
         credit: p.credit,
         emergencyFund: p.emergencyFund || 0,
         insurance: p.insurance || [],
+        livingTicks: p.livingTicks || 0,
       })),
       current: game.current,
       turn: game.turn,
@@ -383,6 +385,7 @@ function resumeGame() {
       credit: cfg.credit ?? 700,
       emergencyFund: cfg.emergencyFund || 0,
       insurance: cfg.insurance || [],
+      livingTicks: cfg.livingTicks || 0,
     };
   });
   const cardAt = (cards, idx) => (idx >= 0 ? cards[idx] : null);
@@ -602,6 +605,15 @@ async function onPayday(p) {
   const fundInterest = Math.round((p.emergencyFund || 0) * 0.01);
   if (fundInterest > 0) p.emergencyFund += fundInterest;
 
+  // هزینهٔ زندگی در یک بازهٔ ثابت از حقوق‌ها بالا می‌رود
+  p.livingTicks = (p.livingTicks || 0) + 1;
+  let livingRaise = 0;
+  if (p.livingTicks >= LIVING_TICKS_PER_RAISE) {
+    p.livingTicks = 0;
+    livingRaise = applyCostOfLiving(p);
+    if (livingRaise > 0) sfx.bad();
+  }
+
   if (p.cash < 0) await handleDebt(p);
 
   // رویدادهای سراسری فعال هر بار حقوق کم می‌شوند
@@ -625,6 +637,7 @@ async function onPayday(p) {
     (passive > 0 ? `<div class="st green">درآمد غیرفعال +${fmt(passive)}</div>` : '') +
     (game.event && game.event.passiveMult ? `<div class="st red">رویداد فعال: ${game.event.title}</div>` : '') +
     `<div class="st red">هزینه‌ها -${fmt(p.expenses)}</div>` +
+    (livingRaise > 0 ? `<div class="st red">گرانی زندگی +${fmt(livingRaise)}/ماه</div>` : '') +
     (fundInterest > 0 ? `<div class="st green">سود صندوق اضطراری +${fmt(fundInterest)}</div>` : '') +
     `<div class="st"><b>نقدینگی فعلی: ${fmt(p.cash)}</b></div>` +
     `<div class="tip">${escaped ? 'درآمد غیرفعال از هزینه‌ها بیشتر شد — انجامش دادی!' : 'حقوقت را بگیر، قبض‌هایت را بپرداز و درآمد غیرفعالت را جیب بزن. هر حقوق یک درس جریان نقدی است.'}</div>`;
@@ -633,7 +646,7 @@ async function onPayday(p) {
     const title = escaped ? 'حقوق — از دایره فقر فرار کردی!' : 'حقوق';
     await showInfo(title, html, ['باشه']);
   } else {
-    log(`${p.name} حقوق گرفت: نقدینگی ${fmt(p.cash)}.`);
+    log(`${p.name} حقوق گرفت: نقدینگی ${fmt(p.cash)}.${livingRaise > 0 ? ` گرانی زندگی ${fmt(livingRaise)}/ماه.` : ''}`);
   }
 
   if (escaped && (game.mode === 'race' || !game.mode)) await endGame(p);
@@ -1294,6 +1307,31 @@ async function onCharity(p) {
 }
 
 /* ---------------- شغل / ترفیع ---------------- */
+/* ---------------- اهداف شغلی و گرانی زندگی ---------------- */
+
+/* ترفیع به یک هدف قطعی نیاز دارد: داشتن (پله+۱) دارایی. */
+function careerGoal(p) {
+  const tier = p.careerTier || 0;
+  const needed = tier + 1;
+  const owned = p.assets.length;
+  return { needed, owned, met: owned >= needed, tierName: CAREER_TIERS[Math.min(tier, CAREER_TIERS.length - 1)].name };
+}
+
+const LIVING_TICKS_PER_RAISE = 4; // هزینهٔ زندگی هر ۴ بار حقوق افزایش می‌یابد
+const LIVING_RAISE_RATE = 0.05;   // هر بار +۵٪
+
+/* هزینهٔ زندگی را به اندازهٔ نرخ افزایش بالا می‌برد. افزایش ماهانه را برمی‌گرداند. */
+function applyCostOfLiving(p) {
+  const living = p.expenseItems.find(it => it.name === LIVING_EXPENSE_NAME);
+  const oldBase = p.baseExpenses || p.job.expenses;
+  const newBase = Math.round(oldBase * (1 + LIVING_RAISE_RATE));
+  const raise = newBase - oldBase;
+  if (living) living.monthly = Math.max(0, Math.round((living.monthly || oldBase) + raise));
+  p.baseExpenses = newBase;
+  recalcExpenses(p);
+  return raise;
+}
+
 function careerInfo(p) {
   const tier = Math.min(p.careerTier || 0, CAREER_TIERS.length - 1);
   return CAREER_TIERS[tier];
@@ -1334,6 +1372,24 @@ async function onCareer(p) {
       <div class="tip"><b>درس:</b> ${LESSONS.promote}</div>`;
     if (p.isHuman) await showInfo('شغل', html, ['باشه']);
     else log(`${p.name} در اوج شغلی است و ${fmt(bonus)} ذخیره می‌کند.`);
+    renderAll();
+    return;
+  }
+  const goal = careerGoal(p);
+  if (!goal.met) {
+    const bonus = scaleIncome(p, 100);
+    p.cash += bonus;
+    sfx.bad();
+    const html = `
+      <div class="card-title">نزدیکی — اول بساز</div>
+      <div class="card-desc">رئیست‌ت تلاش را می‌بیند اما ترفیع به <b>${CAREER_TIERS[Math.min(goal.needed, CAREER_TIERS.length - 1)].name}</b> داشتن <b>${goal.needed}</b> دارایی لازم دارد. تو <b>${goal.owned}</b> داری. دارایی بیشتری بخر و دوباره این‌جا بیا.</div>
+      <div class="card-stats">
+        <div><span>دارایی‌های مالک</span><b>${goal.owned.toLocaleString('fa-IR')} / ${goal.needed.toLocaleString('fa-IR')}</b></div>
+        <div><span>تسلی</span><b class="green">+${fmt(bonus)}</b></div>
+      </div>
+      <div class="tip"><b>درس:</b> ${LESSONS.promote} با دارایی بزرگ شو، نه فقط با حقوق بیشتر.</div>`;
+    if (p.isHuman) await showInfo('شغل', html, ['باشه']);
+    else log(`${p.name} برای ترفیع به ${goal.needed} دارایی نیاز دارد (دارد ${goal.owned})؛ ${fmt(bonus)} ذخیره می‌کند.`);
     renderAll();
     return;
   }

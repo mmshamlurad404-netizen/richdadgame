@@ -242,6 +242,7 @@ function beginGame(players, difficulty, daily, mode) {
       credit: 700,
       emergencyFund: 0,
       insurance: [],
+      livingTicks: 0,
     };
   });
 
@@ -328,6 +329,7 @@ function saveGame() {
         credit: p.credit,
         emergencyFund: p.emergencyFund || 0,
         insurance: p.insurance || [],
+        livingTicks: p.livingTicks || 0,
       })),
       current: game.current,
       turn: game.turn,
@@ -383,6 +385,7 @@ function resumeGame() {
       credit: cfg.credit ?? 700,
       emergencyFund: cfg.emergencyFund || 0,
       insurance: cfg.insurance || [],
+      livingTicks: cfg.livingTicks || 0,
     };
   });
   const cardAt = (cards, idx) => (idx >= 0 ? cards[idx] : null);
@@ -602,6 +605,15 @@ async function onPayday(p) {
   const fundInterest = Math.round((p.emergencyFund || 0) * 0.01);
   if (fundInterest > 0) p.emergencyFund += fundInterest;
 
+  // cost of living rises on a fixed payday interval
+  p.livingTicks = (p.livingTicks || 0) + 1;
+  let livingRaise = 0;
+  if (p.livingTicks >= LIVING_TICKS_PER_RAISE) {
+    p.livingTicks = 0;
+    livingRaise = applyCostOfLiving(p);
+    if (livingRaise > 0) sfx.bad();
+  }
+
   if (p.cash < 0) await handleDebt(p);
 
   // ongoing global events decay on each payday
@@ -625,6 +637,7 @@ async function onPayday(p) {
     (passive > 0 ? `<div class="st green">Passive income +${fmt(passive)}</div>` : '') +
     (game.event && game.event.passiveMult ? `<div class="st red">Active event: ${game.event.title}</div>` : '') +
     `<div class="st red">Expenses -${fmt(p.expenses)}</div>` +
+    (livingRaise > 0 ? `<div class="st red">Cost of living rose +${fmt(livingRaise)}/mo</div>` : '') +
     (fundInterest > 0 ? `<div class="st green">Emergency fund interest +${fmt(fundInterest)}</div>` : '') +
     `<div class="st"><b>Cash now: ${fmt(p.cash)}</b></div>` +
     `<div class="tip">${escaped ? 'Passive income beats expenses — you did it!' : 'Collect your salary, pay your bills, and pocket your passive income. Every payday is a lesson in cash flow.'}</div>`;
@@ -633,7 +646,7 @@ async function onPayday(p) {
     const title = escaped ? 'PAYDAY — ESCAPED THE RAT RACE!' : 'PAYDAY';
     await showInfo(title, html, ['OK']);
   } else {
-    log(`${p.name} gets paid: cash ${fmt(p.cash)}.`);
+    log(`${p.name} gets paid: cash ${fmt(p.cash)}.${livingRaise > 0 ? ` Cost of living up ${fmt(livingRaise)}/mo.` : ''}`);
   }
 
   if (escaped && (game.mode === 'race' || !game.mode)) await endGame(p);
@@ -1294,6 +1307,31 @@ async function onCharity(p) {
 }
 
 /* ---------------- career / promotion ---------------- */
+/* ---------------- career goals & cost-of-living ---------------- */
+
+/* A promotion requires a deterministic goal: own (tier+1) assets. */
+function careerGoal(p) {
+  const tier = p.careerTier || 0;
+  const needed = tier + 1;
+  const owned = p.assets.length;
+  return { needed, owned, met: owned >= needed, tierName: CAREER_TIERS[Math.min(tier, CAREER_TIERS.length - 1)].name };
+}
+
+const LIVING_TICKS_PER_RAISE = 4; // living expenses rise every 4 paydays
+const LIVING_RAISE_RATE = 0.05;   // +5% per rise
+
+/* Push living expenses up by the raise rate. Returns the added monthly cost. */
+function applyCostOfLiving(p) {
+  const living = p.expenseItems.find(it => it.name === LIVING_EXPENSE_NAME);
+  const oldBase = p.baseExpenses || p.job.expenses;
+  const newBase = Math.round(oldBase * (1 + LIVING_RAISE_RATE));
+  const raise = newBase - oldBase;
+  if (living) living.monthly = Math.max(0, Math.round((living.monthly || oldBase) + raise));
+  p.baseExpenses = newBase;
+  recalcExpenses(p);
+  return raise;
+}
+
 function careerInfo(p) {
   const tier = Math.min(p.careerTier || 0, CAREER_TIERS.length - 1);
   return CAREER_TIERS[tier];
@@ -1334,6 +1372,24 @@ async function onCareer(p) {
       <div class="tip"><b>Lesson:</b> ${LESSONS.promote}</div>`;
     if (p.isHuman) await showInfo('Career', html, ['OK']);
     else log(`${p.name} tops out their career and banks ${fmt(bonus)}.`);
+    renderAll();
+    return;
+  }
+  const goal = careerGoal(p);
+  if (!goal.met) {
+    const bonus = scaleIncome(p, 100);
+    p.cash += bonus;
+    sfx.bad();
+    const html = `
+      <div class="card-title">Almost there — build first</div>
+      <div class="card-desc">Your boss notices your drive but promotion to <b>${CAREER_TIERS[Math.min(goal.needed, CAREER_TIERS.length - 1)].name}</b> requires owning <b>${goal.needed}</b> assets. You own <b>${goal.owned}</b>. Buy more assets and land here again.</div>
+      <div class="card-stats">
+        <div><span>Assets owned</span><b>${goal.owned} / ${goal.needed}</b></div>
+        <div><span>Consolation</span><b class="green">+${fmt(bonus)}</b></div>
+      </div>
+      <div class="tip"><b>Lesson:</b> ${LESSONS.promote} Own assets to grow, not just a higher salary.</div>`;
+    if (p.isHuman) await showInfo('Career', html, ['OK']);
+    else log(`${p.name} needs ${goal.needed} assets for promotion (has ${goal.owned}); banks ${fmt(bonus)}.`);
     renderAll();
     return;
   }
