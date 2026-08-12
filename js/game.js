@@ -1380,7 +1380,9 @@ async function endGame(w, reason) {
         (p === w ? '<em>Winner</em>' : (p.bankrupt ? '<em>Bankrupt</em>' : (p.escaped ? '<em>Escaped</em>' : '<em>Rat Race</em>'))) +
         `<span>NW ${fmt(netWorth(p))}</span></div>`).join('')}
     </div>
-    <div class="tip">Passive earned: ${game.players.map(p => `${p.name} ${fmt(p.totalPassiveEarned)}`).join(' · ') || '—'}</div>`;
+    <div class="tip">Passive earned: ${game.players.map(p => `${p.name} ${fmt(p.totalPassiveEarned)}`).join(' · ') || '—'}</div>
+    <h3>Final Reports</h3>
+    ${game.players.map(p => reportBlock(p)).join('')}`;
   const action = await showInfo('Financial Freedom!', winnerHtml, [
     { v: 'again', label: 'Play Again', cls: 'ok' },
     { v: 'close', label: 'Keep Watching', cls: 'cancel' }], true);
@@ -1392,6 +1394,48 @@ function netWorth(p) {
   const assets = p.assets.reduce((s, a) => s + a.value, 0);
   const loans = p.loans.reduce((s, l) => s + l.principal, 0);
   return p.cash + (p.emergencyFund || 0) + assets - loans;
+}
+
+/* ---------------- end-of-game report ---------------- */
+function incomeStatement(p) {
+  const prem = insurancePremium(p);
+  const loanInterest = p.loans.reduce((s, l) => s + l.monthly, 0);
+  const flow = p.salary - p.expenses + p.passiveIncome;
+  const rows = [];
+  rows.push(['Salary', `+${fmt(p.salary)}`, 'green']);
+  rows.push(['Passive income', `+${fmt(p.passiveIncome)}`, 'green']);
+  rows.push(['Living expenses', `-${fmt(p.baseExpenses)}`, 'red']);
+  if (prem > 0) rows.push(['Insurance premiums', `-${fmt(prem)}`, 'red']);
+  if (loanInterest > 0) rows.push(['Loan interest', `-${fmt(loanInterest)}`, 'red']);
+  return `
+    <div class="report">
+      <h4>Income Statement</h4>
+      ${rows.map(([l, v, cls]) => `<div class="rp-row"><span>${l}</span><b class="${cls}">${v}</b></div>`).join('')}
+      <div class="rp-row total"><span>Monthly cash flow</span><b class="${flow >= 0 ? 'green' : 'red'}">${flow >= 0 ? '+' : ''}${fmt(flow)}</b></div>
+      <div class="rp-lifetime">Lifetime: <b>+${fmt(p.totalPassiveEarned)}</b> passive · <b>-${fmt(p.totalTaxPaid)}</b> tax · <b>-${fmt(p.totalCharity)}</b> charity · <b>${p.investmentsBought}</b> investments bought</div>
+    </div>`;
+}
+
+function balanceSheet(p) {
+  const assetsVal = p.assets.reduce((s, a) => s + a.value, 0);
+  const loans = p.loans.reduce((s, l) => s + l.principal, 0);
+  return `
+    <div class="report">
+      <h4>Balance Sheet</h4>
+      <div class="rp-row"><span>Cash</span><b>${fmt(p.cash)}</b></div>
+      <div class="rp-row"><span>Emergency fund</span><b>${fmt(p.emergencyFund || 0)}</b></div>
+      <div class="rp-row"><span>Assets (${p.assets.length})</span><b>${fmt(assetsVal)}</b></div>
+      <div class="rp-row"><span>Loans</span><b class="red">-${fmt(loans)}</b></div>
+      <div class="rp-row total"><span>Net worth</span><b>${fmt(netWorth(p))}</b></div>
+    </div>`;
+}
+
+function reportBlock(p) {
+  return `
+    <div class="report-block">
+      <div class="report-head" style="background:${p.color}20"><span class="sb-dot" style="background:${p.color}"></span><b>${p.name}</b>${p.bankrupt ? '<em>Bankrupt</em>' : ''}</div>
+      <div class="report-cols">${incomeStatement(p)}${balanceSheet(p)}</div>
+    </div>`;
 }
 
 /* ---------------- rendering ---------------- */

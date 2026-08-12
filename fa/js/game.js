@@ -1380,7 +1380,9 @@ async function endGame(w, reason) {
         (p === w ? '<em>برنده</em>' : (p.bankrupt ? '<em>ورشکسته</em>' : (p.escaped ? '<em>فرار کرد</em>' : '<em>دایره فقر</em>'))) +
         `<span>ارزش ${fmt(netWorth(p))}</span></div>`).join('')}
     </div>
-    <div class="tip">درآمد غیرفعال به‌دست‌آمده: ${game.players.map(p => `${p.name} ${fmt(p.totalPassiveEarned)}`).join(' · ') || '—'}</div>`;
+    <div class="tip">درآمد غیرفعال به‌دست‌آمده: ${game.players.map(p => `${p.name} ${fmt(p.totalPassiveEarned)}`).join(' · ') || '—'}</div>
+    <h3>گزارش‌های پایانی</h3>
+    ${game.players.map(p => reportBlock(p)).join('')}`;
   const action = await showInfo('آزادی مالی!', winnerHtml, [
     { v: 'again', label: 'دوباره بازی کن', cls: 'ok' },
     { v: 'close', label: 'ادامه تماشا', cls: 'cancel' }], true);
@@ -1392,6 +1394,48 @@ function netWorth(p) {
   const assets = p.assets.reduce((s, a) => s + a.value, 0);
   const loans = p.loans.reduce((s, l) => s + l.principal, 0);
   return p.cash + (p.emergencyFund || 0) + assets - loans;
+}
+
+/* ---------------- گزارش پایان بازی ---------------- */
+function incomeStatement(p) {
+  const prem = insurancePremium(p);
+  const loanInterest = p.loans.reduce((s, l) => s + l.monthly, 0);
+  const flow = p.salary - p.expenses + p.passiveIncome;
+  const rows = [];
+  rows.push(['حقوق', `+${fmt(p.salary)}`, 'green']);
+  rows.push(['درآمد غیرفعال', `+${fmt(p.passiveIncome)}`, 'green']);
+  rows.push(['هزینه‌های زندگی', `-${fmt(p.baseExpenses)}`, 'red']);
+  if (prem > 0) rows.push(['حق بیمه', `-${fmt(prem)}`, 'red']);
+  if (loanInterest > 0) rows.push(['سود وام‌ها', `-${fmt(loanInterest)}`, 'red']);
+  return `
+    <div class="report">
+      <h4>صورت درآمد</h4>
+      ${rows.map(([l, v, cls]) => `<div class="rp-row"><span>${l}</span><b class="${cls}">${v}</b></div>`).join('')}
+      <div class="rp-row total"><span>جریان نقدی ماهانه</span><b class="${flow >= 0 ? 'green' : 'red'}">${flow >= 0 ? '+' : ''}${fmt(flow)}</b></div>
+      <div class="rp-lifetime">در کل: <b>+${fmt(p.totalPassiveEarned)}</b> غیرفعال · <b>-${fmt(p.totalTaxPaid)}</b> مالیات · <b>-${fmt(p.totalCharity)}</b> خیریه · <b>${p.investmentsBought}</b> خرید سرمایه‌گذاری</div>
+    </div>`;
+}
+
+function balanceSheet(p) {
+  const assetsVal = p.assets.reduce((s, a) => s + a.value, 0);
+  const loans = p.loans.reduce((s, l) => s + l.principal, 0);
+  return `
+    <div class="report">
+      <h4>ترازنامه</h4>
+      <div class="rp-row"><span>نقدینگی</span><b>${fmt(p.cash)}</b></div>
+      <div class="rp-row"><span>صندوق اضطراری</span><b>${fmt(p.emergencyFund || 0)}</b></div>
+      <div class="rp-row"><span>دارایی‌ها (${p.assets.length})</span><b>${fmt(assetsVal)}</b></div>
+      <div class="rp-row"><span>وام‌ها</span><b class="red">-${fmt(loans)}</b></div>
+      <div class="rp-row total"><span>ارزش خالص</span><b>${fmt(netWorth(p))}</b></div>
+    </div>`;
+}
+
+function reportBlock(p) {
+  return `
+    <div class="report-block">
+      <div class="report-head" style="background:${p.color}20"><span class="sb-dot" style="background:${p.color}"></span><b>${p.name}</b>${p.bankrupt ? '<em>ورشکسته</em>' : ''}</div>
+      <div class="report-cols">${incomeStatement(p)}${balanceSheet(p)}</div>
+    </div>`;
 }
 
 /* ---------------- نمایش ---------------- */

@@ -179,6 +179,38 @@ const b4 = loadGame(htmlDir, jsDir, { [key]: JSON.stringify(oldSave2) });
 b4.document.getElementById('resume-btn').click();
 check(evalIn(b4.window, 'game.players[0].insurance').length === 0, 'old saves backfill insurance to empty');
 
+/* ================= G: end-of-game report ================= */
+evalIn(window, `(() => {
+  const p = game.players[0];
+  p.bankrupt = false;
+  p.cash = 500; p.emergencyFund = 200;
+  p.assets = [{ name: 'H', cat: 'realestate', cost: 1000, value: 1500, monthly: 10 }];
+  p.loans = [{ principal: 300, monthly: 20, kind: 'standard' }];
+  p.baseExpenses = 400; p.expenses = 420; p.passiveIncome = 10; p.salary = 1000;
+  p.totalPassiveEarned = 5000; p.totalTaxPaid = 800; p.totalCharity = 50; p.investmentsBought = 3;
+  const st = incomeStatement(p);
+  const bs = balanceSheet(p);
+  const blk = reportBlock(p);
+  window.__rep = {
+    stHasRows: st.indexOf('rp-row') >= 0,
+    stHasTotal: st.indexOf('rp-row total') >= 0 && st.indexOf('rp-lifetime') >= 0,
+    stFlowOk: st.indexOf(fmt(590)) >= 0,
+    stHasPlus: st.indexOf('+$') >= 0,
+    stHasMinus: st.indexOf('-$') >= 0,
+    bsHasRows: bs.indexOf('rp-row') >= 0,
+    bsHasTotal: bs.indexOf('rp-row total') >= 0,
+    bsNwOk: bs.indexOf(fmt(netWorth(p))) >= 0,
+    blk: blk.indexOf('report-block') >= 0 && blk.indexOf('report-cols') >= 0,
+  };
+})()`);
+const rep = evalIn(window, 'window.__rep');
+check(rep.stHasRows && rep.stHasTotal, 'income statement has rows, total and lifetime lines');
+check(rep.stFlowOk, 'income statement cash flow = salary + passive - expenses');
+check(rep.stHasPlus && rep.stHasMinus, 'income statement shows income and expense signs');
+check(rep.bsHasRows && rep.bsHasTotal, 'balance sheet has rows and a total line');
+check(rep.bsNwOk, 'balance sheet net worth = cash + fund + assets - loans');
+check(rep.blk, 'reportBlock renders a player block');
+
 /* ================= persistence ================= */
 evalIn(window, `(() => {
   const p = game.players[0];
