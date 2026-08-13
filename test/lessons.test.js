@@ -22,7 +22,7 @@ const hasExample = isFa ? labels.includes('مثال واقعی') : labels.includ
 const closeBtn = body.querySelector('[data-hclose]');
 
 console.log('modal open:', open, '| lesson cards:', cards, '| has quote:', hasQuote);
-const ok = open && cards === 20 && hasQuote && hasWhat && hasExample && hasGame && !!closeBtn;
+const ok = open && cards === 22 && hasQuote && hasWhat && hasExample && hasGame && !!closeBtn;
 if (!ok) { console.log('LESSONS RENDER FAIL'); process.exit(1); }
 
 closeBtn.click();

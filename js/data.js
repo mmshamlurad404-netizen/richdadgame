@@ -199,6 +199,9 @@ const LESSONS = {
   needs: 'Needs are things you must have. Wants are nice to have. Spend on needs first.',
   promote: 'Career growth raises your salary — but lifestyle creep raises expenses too. What matters is the gap you keep and invest.',
   peerloan: 'A player-to-player loan is cash from another player at a friendlier rate. Interest still flows out every month — and the lender expects the principal back.',
+  costofliving: 'The cost of living drifts up over time. Every few paydays your living expenses rise a little — raise your income faster than your bills.',
+  insurance: 'Insurance costs a small monthly premium but caps your losses when a market drops. Paying a little protects a lot.',
+  career: 'Promotions need more than time on the job — you must own assets that grow while you work. Your career and your portfolio rise together.',
   bankrupt: 'When bills exceed every resource, you are bankrupt. Fire-sale, restructure or retire — bankruptcy is expensive, so plan to avoid it.',
 };
 
@@ -343,22 +346,40 @@ const MONEY_LESSONS = [
     example: '$2,000 spent on a new gaming setup is $2,000 not invested. At 7% over 20 years that $2,000 could have grown to about $7,700. The setup is fun — the question is whether it is worth $7,700 of future money.',
     game: 'Every Buy button is a decision with a trade-off. Spending cash on a shiny expense now means missing the passive income that cash could have generated forever. Compare each deal\'s payback before you commit.',
   },
+  {
+    title: 'Risk Management & Insurance',
+    quote: 'Hope is not a strategy. Protect your downside so a setback never becomes a disaster.',
+    meaning: 'Wealth is not only about how much you can earn — it is about how much you can keep when things go wrong. A market crash, an accident or a surprise bill can wipe out years of progress in one turn. Insurance and cash reserves exist to absorb those shocks: you pay a small, predictable cost now so a big, unpredictable cost later cannot ruin you.',
+    example: 'Two landlords each own a building. One pays a small premium to insure it; the other saves the premium and hopes nothing happens. When a fire damages both, the insured landlord rebuilds and keeps collecting rent, while the uninsured one loses the building and years of income.',
+    game: 'Your emergency fund absorbs surprise expenses, and per-category insurance caps what you lose when a MARKET space drops an asset\'s value. Insure the categories you rely on — the premium is small, the protection is large.',
+  },
+  {
+    title: 'Lifestyle Inflation',
+    quote: 'When your income rises, keep your spending flat — or you will be rich and poor at the same time.',
+    meaning: 'As people earn more, they usually spend more: a bigger car, a nicer apartment, fancier habits. Each raise gets absorbed by a new lifestyle, so the savings rate never improves. Financial freedom comes from the gap between what you earn and what you spend — keep that gap growing, not the lifestyle.',
+    example: 'A promotion adds $1,000/month. One worker keeps the old apartment and invests the raise, adding $12,000 a year to their wealth. Another signs a lease on a nicer place and a car payment that cost exactly $1,000 — richer on paper, poorer in reality.',
+    game: 'Promotions raise your salary but also nudge your expenses up, and the cost of living drifts upward every few paydays. Beat the creep: grow your passive income faster than your living costs, or the Rat Race just gets more expensive.',
+  },
 ];
 
 const HOW_TO_PLAY = [
   { h: 'Goal', t: 'Escape the Rat Race! Build monthly PASSIVE INCOME that is bigger than your monthly EXPENSES.' },
   { h: 'Roll & Move', t: 'On your turn, roll two dice and move around the board. Every space teaches a money skill.' },
-  { h: 'Payday', t: 'Landing on PAYDAY (green) pays your salary, subtracts expenses, and adds your passive income.' },
-  { h: 'Deals', t: 'DEAL spaces (purple) open today\'s market: buy or sell a home, factory, company shares or savings. Compare offers and pick the one with the shortest payback.' },
-  { h: 'Markets', t: 'MARKET spaces (orange) change the value of what you own. Values rise and fall — that is normal.' },
-  { h: 'Surprises', t: 'Expenses, taxes, babies and job losses happen to everyone. An emergency fund protects you.' },
+  { h: 'Payday', t: 'Landing on PAYDAY (green) pays your salary, subtracts expenses, and adds your passive income. Your emergency fund earns 1% interest and any peer-loan interest you are owed is collected here too.' },
+  { h: 'Deals', t: 'DEAL spaces (purple) open today\'s market: buy or sell a home, factory, company shares or savings. Each offer is rated by payback time — Great (12 mo), Good (24 mo), Fair (48 mo) or Slow — and the shorter the payback, the faster your money comes back.' },
+  { h: 'Markets', t: 'MARKET spaces (orange) change the value of what you own. Values rise and fall — that is normal. Your portfolio shows the gain or loss on every asset since you bought it.' },
+  { h: 'Surprises', t: 'Expenses, taxes, babies and job losses happen to everyone. An emergency fund protects you, and insurance caps your losses when a market drops.' },
+  { h: 'Emergency Fund', t: 'Use the portfolio to deposit or withdraw from your emergency fund. Surprise costs draw from the fund first, it earns 1% interest on every payday, and the target is 3 months of expenses.' },
+  { h: 'Insurance', t: 'In your portfolio, insure any asset category you own for 1% of its insured value per month. Insurance caps market-down losses at 60% of what you paid, so a crash hurts less.' },
   { h: 'Taxes', t: 'The TAX space charges progressive income tax: 10% up to $800/mo, 15% to $2000/mo, 22% to $5000/mo, then 32%. Only the part above each threshold is taxed at the higher rate.' },
   { h: 'Charity', t: 'Giving on the GIVING space earns you a bonus roll next turn. Generosity pays back.' },
-  { h: 'Promotions', t: 'PROMOTION spaces climb your career ladder: higher salary, a little more expense, and a cash bonus. Skills are assets too.' },
+  { h: 'Promotions', t: 'PROMOTION spaces climb your career ladder: higher salary, a little more expense, and a cash bonus. You must own one asset per career tier to be promoted — skills are assets too, but so are real ones.' },
+  { h: 'Cost of Living', t: 'Every few paydays the cost of living rises about 5%. Your living expenses creep up over time, so keep your income growing faster than your bills.' },
   { h: 'Bankruptcy', t: 'If you cannot cover your bills, you must fire-sale assets, restructure your debt, or retire from the game. Avoid it with an emergency fund.' },
   { h: 'Loans & Credit', t: 'Borrow from the portfolio to fund deals, but interest costs you every month. Interest-only loans are cheaper monthly yet cost a 20% premium to settle. Repaying loans raises your credit score and lowers future rates.' },
+  { h: 'Peer Loans', t: 'In the Trade view you can borrow from another player at a friendlier 6% monthly rate. The lender must have the cash and accepts on their turn — the loan activates at the start of the next round. Repay the principal anytime from the Trade view.' },
   { h: 'Global Events', t: 'Sometimes a MARKET space triggers a global event instead of a news card: recessions cut passive income for a few paydays, rallies raise asset values, rate cuts shrink loan interest. Events hit every player — good luck is shared, and so is bad luck.' },
-  { h: 'Winning', t: 'Pick a win condition in setup. Escape the Rat Race: first to passive income greater than expenses. Richest after 40 turns: the biggest net worth when turn 40 ends wins. First to $100,000: the first player whose net worth passes the goal wins.' },
+  { h: 'Winning', t: 'Pick a win condition in setup. Escape the Rat Race: first to passive income greater than expenses. Richest after 40 turns: the biggest net worth when turn 40 ends wins. First to $100,000: the first player whose net worth passes the goal wins. When the game ends, every player gets a final report with an income statement and balance sheet.' },
 ];
 
 const WIN_TIPS = [
