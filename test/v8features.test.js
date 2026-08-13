@@ -407,6 +407,120 @@ const rl = evalIn(window, 'window.__rl');
 check(rb.lRecv === 0, 'retiring the borrower drops the lender receivable');
 check(rl.bLoans === 0 && rl.lRecv2 === 0, 'retiring the lender forgives the borrower loan');
 
+/* requestPeerLoan creates a pending entry, not a live loan */
+evalIn(window, `(() => {
+  const lender = game.players[0];
+  const borrower = game.players[1];
+  lender.cash = 5000; borrower.cash = 100;
+  lender.bankrupt = false; borrower.bankrupt = false;
+  const res = requestPeerLoan(lender, borrower, 1000);
+  window.__req = { res, pending: (game.pendingLoans || []).length,
+    lenderCash: lender.cash, borrowerCash: borrower.cash,
+    bLoans: borrower.peerLoans.length, state: res ? res.state : null };
+})()`);
+const req = evalIn(window, 'window.__req');
+check(req.res && req.state === 'pending', 'requestPeerLoan returns a pending entry');
+check(req.pending === 1 && req.bLoans === 0, 'no live loan yet while pending');
+check(req.lenderCash === 5000 && req.borrowerCash === 100, 'no cash moves while pending');
+
+/* duplicate requests are refused */
+evalIn(window, `(() => {
+  const lender = game.players[0];
+  const borrower = game.players[1];
+  const again = requestPeerLoan(lender, borrower, 1000);
+  window.__dup = again === null;
+})()`);
+check(evalIn(window, 'window.__dup') === true, 'duplicate pending request is refused');
+
+/* a lender who accepts schedules activation for next round */
+evalIn(window, `(() => {
+  const lender = game.players[0];
+  game.round = 2;
+  resolvePendingLoans(lender);
+  const l = (game.pendingLoans || [])[0];
+  window.__acc = { state: l ? l.state : null, activeRound: l ? l.activeRound : null,
+    lenderCash: lender.cash, borrowerCash: game.players[1].cash };
+})()`);
+const acc = evalIn(window, 'window.__acc');
+check(acc.state === 'accepted' && acc.activeRound === 3, 'acceptance schedules activation for the next round');
+check(acc.lenderCash === 5000, 'still no cash movement before the round activates');
+
+/* activation transfers cash and creates live records */
+evalIn(window, `(() => {
+  const lender = game.players[0];
+  const borrower = game.players[1];
+  game.round = 3;
+  activateDuePeerLoans();
+  window.__act = { pending: (game.pendingLoans || []).length,
+    lenderCash: lender.cash, borrowerCash: borrower.cash,
+    lRecv: lender.peerReceivables.length, bLoans: borrower.peerLoans.length,
+    bMonthly: borrower.peerLoans[0] ? borrower.peerLoans[0].monthly : null };
+})()`);
+const act = evalIn(window, 'window.__act');
+check(act.pending === 0, 'activated loan is removed from pending');
+check(act.lenderCash === 4000 && act.borrowerCash === 1100, 'cash moves on activation');
+check(act.lRecv === 1 && act.bLoans === 1, 'live records created on activation');
+check(act.bMonthly === Math.round(1000 * 0.06), 'activated loan carries the 6% monthly interest');
+
+/* a lender with too little cash voids the pending loan on activation */
+evalIn(window, `(() => {
+  const lender = game.players[0];
+  const borrower = game.players[1];
+  lender.cash = 0; borrower.cash = 500;
+  lender.peerReceivables = []; borrower.peerLoans = [];
+  requestPeerLoan(lender, borrower, 1000);
+  game.round = 10;
+  resolvePendingLoans(lender);
+  activateDuePeerLoans();
+  window.__void = { pending: (game.pendingLoans || []).length, bLoans: borrower.peerLoans.length, borrowerCash: borrower.cash };
+})()`);
+const voided = evalIn(window, 'window.__void');
+check(voided.pending === 0 && voided.bLoans === 0 && voided.borrowerCash === 500, 'unfundable accepted loan is voided without transferring cash');
+
+/* a declining lender passes and the requester gets no loan */
+evalIn(window, `(() => {
+  const lender = game.players[0];
+  const borrower = game.players[1];
+  lender.cash = 100;
+  const res2 = requestPeerLoan(lender, borrower, 1000);
+  window.__pre = (game.pendingLoans || []).length;
+  resolvePendingLoans(lender);
+  window.__dec = { pending: (game.pendingLoans || []).length, bLoans: borrower.peerLoans.length, res: !!res2 };
+})()`);
+const dec = evalIn(window, 'window.__dec');
+check(dec.pending === 0 && dec.bLoans === 0, 'a declining lender passes and the requester gets no loan');
+
+/* peer interest appears as a distinct income source in the portfolio */
+evalIn(window, `(() => {
+  const p = game.players[0];
+  p.isHuman = true;
+  p.peerReceivables = [{ borrower: 'x', principal: 1000, monthly: 60 }];
+  openPortfolio();
+  window.__port = document.getElementById('card-body').innerHTML;
+  p.peerReceivables = [];
+})()`);
+const port = evalIn(window, 'window.__port');
+const peerIncomeLabel = lang === 'fa' ? 'سود وام بین بازیکن' : 'Peer loan interest';
+check(port.includes(peerIncomeLabel), 'portfolio shows peer loan interest as a distinct income source');
+check(port.includes('+$60') || port.includes('+$۶۰') || port.includes('+۶۰'), 'portfolio shows the peer interest amount');
+
+/* round wraps and pending loans persist/resume */
+evalIn(window, `(() => {
+  const p = game.players[0];
+  p.bankrupt = false; game.round = 7;
+  saveGame();
+})()`);
+const savedR = JSON.parse(window.localStorage.getItem(key));
+check(savedR.round === 7, 'round persisted in save');
+const bR = loadGame(htmlDir, jsDir, { [key]: JSON.stringify(savedR) });
+bR.document.getElementById('resume-btn').click();
+check(evalIn(bR.window, 'game.round') === 7, 'resume restores round');
+const oldSaveR = JSON.parse(JSON.stringify(savedR));
+delete oldSaveR.round;
+const bR2 = loadGame(htmlDir, jsDir, { [key]: JSON.stringify(oldSaveR) });
+bR2.document.getElementById('resume-btn').click();
+check(evalIn(bR2.window, 'game.round') === 1, 'old saves backfill round to 1');
+
 /* ================= persistence ================= */
 evalIn(window, `(() => {
   const p = game.players[0];

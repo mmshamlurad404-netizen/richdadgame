@@ -254,6 +254,8 @@ function beginGame(players, difficulty, daily, mode) {
     players: p,
     current: 0,
     turn: 1,
+    round: 1,
+    pendingLoans: [],
     difficulty: difficulty || 'medium',
     daily: !!daily,
     seed: seed,
@@ -336,6 +338,8 @@ function saveGame() {
       })),
       current: game.current,
       turn: game.turn,
+      round: game.round || 1,
+      pendingLoans: game.pendingLoans || [],
       difficulty: game.difficulty,
       daily: game.daily,
       seed: game.seed,
@@ -398,6 +402,8 @@ function resumeGame() {
     players,
     current: s.current,
     turn: s.turn,
+    round: s.round || 1,
+    pendingLoans: s.pendingLoans || [],
     difficulty: s.difficulty || 'medium',
     daily: !!s.daily,
     seed: s.seed || null,
@@ -466,6 +472,7 @@ async function takeTurn() {
   const p = currentPlayer();
   $('roll-btn').disabled = true;
   renderAll();
+  resolvePendingLoans(p);
   if (p.ai) {
     await sleep(aiDelay());
     if (aiDifficultyLevel() === 'hard') aiManagePortfolio(p);
@@ -477,11 +484,18 @@ async function takeTurn() {
 
   // next player — skip any player who went bankrupt
   let guard = 0;
+  const prevCurrent = game.current;
   do {
     game.current = (game.current + 1) % game.players.length;
   } while (game.players[game.current].bankrupt && game.players.some(x => !x.bankrupt) && guard++ < game.players.length);
   game.turn++;
   renderAll();
+
+  // a new round begins when the turn wraps back to the first player
+  if (game.current <= prevCurrent) {
+    game.round = (game.round || 1) + 1;
+    activateDuePeerLoans();
+  }
 
   if (checkModeWin()) {
     await endGame(game.winner, game.winnerReason);
@@ -648,6 +662,7 @@ async function onPayday(p) {
     `<div class="st red">Expenses -${fmt(p.expenses)}</div>` +
     (livingRaise > 0 ? `<div class="st red">Cost of living rose +${fmt(livingRaise)}/mo</div>` : '') +
     (fundInterest > 0 ? `<div class="st green">Emergency fund interest +${fmt(fundInterest)}</div>` : '') +
+    (peerCollected > 0 ? `<div class="st green">Peer loan interest +${fmt(peerCollected)}</div>` : '') +
     `<div class="st"><b>Cash now: ${fmt(p.cash)}</b></div>` +
     `<div class="tip">${escaped ? 'Passive income beats expenses — you did it!' : 'Collect your salary, pay your bills, and pocket your passive income. Every payday is a lesson in cash flow.'}</div>`;
 
@@ -934,6 +949,60 @@ function aiLends(lender, amount) {
   if (lender.cash < amount * 1.5) return false;
   if ((lender.peerReceivables || []).length >= 2) return false;
   return true;
+}
+
+/* One player requests a loan from another. The lender accepts or refuses on
+   their own turn; accepted loans are activated at the start of the next round.
+   Returns the pending entry, or null if the pair already has one pending. */
+function requestPeerLoan(lender, borrower, amount) {
+  if (lender.bankrupt) return null;
+  const existing = (game.pendingLoans || []).some(l =>
+    l.lender === lender.name && l.borrower === borrower.name && l.principal === amount && l.state === 'pending');
+  if (existing) return null;
+  const monthly = Math.round(amount * PEER_RATE);
+  const entry = { lender: lender.name, borrower: borrower.name, principal: amount, monthly, state: 'pending', activeRound: 0 };
+  game.pendingLoans = game.pendingLoans || [];
+  game.pendingLoans.push(entry);
+  log(`${borrower.name} asks ${lender.name} for a ${fmt(amount)} loan.`);
+  saveGame();
+  return entry;
+}
+
+/* The lender evaluates their pending requests on their own turn. */
+function resolvePendingLoans(p) {
+  (game.pendingLoans || []).filter(l => l.lender === p.name && l.state === 'pending').forEach(l => {
+    if (aiLends(p, l.principal)) {
+      l.state = 'accepted';
+      l.activeRound = (game.round || 1) + 1;
+      log(`${p.name} accepts ${l.borrower}'s loan request — active next round.`);
+    } else {
+      game.pendingLoans = game.pendingLoans.filter(x => x !== l);
+      log(`${p.name} declines ${l.borrower}'s loan request — not enough liquidity.`);
+    }
+  });
+}
+
+/* Activate accepted loans at the start of a new round. */
+function activateDuePeerLoans() {
+  const due = (game.pendingLoans || []).filter(l => l.state === 'accepted' && l.activeRound <= (game.round || 1));
+  due.forEach(l => {
+    const lender = game.players.find(x => x.name === l.lender);
+    const borrower = game.players.find(x => x.name === l.borrower);
+    if (lender && borrower && !lender.bankrupt && !borrower.bankrupt && lender.cash >= l.principal) {
+      lender.cash -= l.principal;
+      lender.peerReceivables = lender.peerReceivables || [];
+      lender.peerReceivables.push({ borrower: borrower.name, principal: l.principal, monthly: l.monthly });
+      borrower.cash += l.principal;
+      borrower.peerLoans = borrower.peerLoans || [];
+      borrower.peerLoans.push({ lender: lender.name, principal: l.principal, monthly: l.monthly, kind: 'peer' });
+      recalcExpenses(borrower);
+      log(`${l.borrower} receives the ${fmt(l.principal)} loan from ${l.lender}.`);
+    } else {
+      log(`${l.borrower}'s loan request from ${l.lender} is void.`);
+    }
+    game.pendingLoans = game.pendingLoans.filter(x => x !== l);
+  });
+  if (due.length) saveGame();
 }
 
 /* One player lends to another at the peer rate. Returns { principal, monthly } or null if refused. */
@@ -1715,6 +1784,8 @@ function openPortfolio() {
       </div>`).join('')
     : '<div class="empty">No loans. Good — debt costs money every month.</div>';
 
+  const peerInterestIncome = (p.peerReceivables || []).reduce((s, r) => s + r.monthly, 0);
+  const peerLoanInterest = (p.peerLoans || []).reduce((s, l) => s + l.monthly, 0);
   const cashflow = p.salary - p.expenses + p.passiveIncome;
   const loanInterest = p.loans.reduce((s, l) => s + l.monthly, 0);
   const expensesHtml = p.expenseItems.map((it, i) => `
@@ -1727,10 +1798,21 @@ function openPortfolio() {
         <div class="p2name"><b>Bank loan interest</b><span>${p.loans.length} loan${p.loans.length > 1 ? 's' : ''}</span></div>
         <div class="p2val red">-${fmt(loanInterest)}</div>
       </div>` : '') +
+    (peerLoanInterest > 0 ? `
+      <div class="prow2">
+        <div class="p2name"><b>Peer loan interest</b><span>${p.peerLoans.length} peer loan${p.peerLoans.length > 1 ? 's' : ''}</span></div>
+        <div class="p2val red">-${fmt(peerLoanInterest)}</div>
+      </div>` : '') +
     (insurancePremium(p) > 0 ? `
       <div class="prow2">
         <div class="p2name"><b>Insurance premiums</b><span>${(p.insurance || []).length} covered categor${(p.insurance || []).length > 1 ? 'ies' : 'y'}</span></div>
         <div class="p2val red">-${fmt(insurancePremium(p))}</div>
+      </div>` : '');
+  const incomeHtml =
+    (peerInterestIncome > 0 ? `
+      <div class="prow2">
+        <div class="p2name"><b>Peer loan interest</b><span>${p.peerReceivables.length} loan${p.peerReceivables.length > 1 ? 's' : ''} lent</span></div>
+        <div class="p2val green">+${fmt(peerInterestIncome)}</div>
       </div>` : '');
 
   const hist = (p.history || []).slice(-12);
@@ -1763,6 +1845,16 @@ function openPortfolio() {
       <button class="btn small ok" data-act="deposit">Deposit $100</button>
       <button class="btn small" data-act="withdraw">Withdraw $100</button>
     </div>
+    <h3>Income <span class="hint">what comes in each month</span></h3>
+    <div class="prow2">
+      <div class="p2name"><b>Salary</b><span>active</span></div>
+      <div class="p2val green">+${fmt(p.salary)}</div>
+    </div>
+    <div class="prow2">
+      <div class="p2name"><b>Passive income</b><span>assets you own</span></div>
+      <div class="p2val green">+${fmt(p.passiveIncome)}</div>
+    </div>
+    ${incomeHtml}
     <h3>Expenses <span class="hint">what goes out each month</span></h3>
     ${expensesHtml}
     <h3>Assets <span class="hint">sell for their current market value</span></h3>
@@ -1963,13 +2055,21 @@ function openTradeView() {
         <button class="btn small repay" data-prepay="${i}">Repay</button>
       </div>`).join('')
     : '<div class="empty">No peer loans. Borrow from another player at a friendlier 6% rate.</div>';
+  const myPending = (game.pendingLoans || []).filter(l => l.borrower === p.name);
+  const pendingHtml = myPending.length
+    ? `<h4>Your loan requests</h4>${myPending.map(l => `
+      <div class="prow2">
+        <div class="p2name"><b>${l.principal > 0 ? 'Loan request' : ''} from ${l.lender}</b><span>${fmt(l.monthly)}/mo interest</span></div>
+        <div class="p2val">${l.state === 'accepted' ? 'Accepted — next round' : 'Pending — lender decides on their turn'}</div>
+      </div>`).join('')}`
+    : '';
   const peerLendHtml = others.map(o => {
     const gave = (p.peerReceivables || []).filter(r => r.borrower === o.name).reduce((s, r) => s + r.principal, 0);
-    const accepted = aiLends(o, 500);
+    const requested = (game.pendingLoans || []).some(l => l.lender === o.name && l.borrower === p.name);
     return `
       <div class="ins-row">
         <span><b>${o.name}</b> · cash ${fmt(o.cash)}${gave > 0 ? ` · lent ${fmt(gave)}` : ''}</span>
-        <button class="btn small ok" data-pborrow="${o.name}|1000" ${accepted ? '' : 'disabled'}>Borrow $1000</button>
+        <button class="btn small ok" data-pborrow="${o.name}|1000" ${requested ? 'disabled' : ''}>Borrow $1000</button>
       </div>`;
   }).join('');
   const theirs = others.map(o => `
@@ -1993,6 +2093,7 @@ function openTradeView() {
     ${peerBorrowHtml}
     <h4>Borrow from another player</h4>
     ${peerLendHtml}
+    ${pendingHtml}
     <div class="card-actions2">
       <button class="btn cancel" data-act="close">Close</button>
     </div>`;
@@ -2013,13 +2114,8 @@ function openTradeView() {
     const [lname, amt] = b.dataset.pborrow.split('|');
     const lender = game.players.find(x => x.name === lname);
     if (!lender || lender.bankrupt) return;
-    if (!aiLends(lender, +amt)) { log(`${lender.name} declines the loan — not enough liquidity.`); return; }
-    const res = givePeerLoan(lender, p, +amt);
-    if (res) {
-      sfx.coin();
-      log(`${p.name} borrows ${fmt(res.principal)} from ${lender.name} (-${fmt(res.monthly)}/mo interest).`);
-      openTradeView();
-    }
+    const res = requestPeerLoan(lender, p, +amt);
+    if (res) openTradeView();
   }));
   body.querySelectorAll('[data-prepay]').forEach(b => b.addEventListener('click', async () => {
     const loan = (p.peerLoans || [])[+b.dataset.prepay];
