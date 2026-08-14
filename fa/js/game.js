@@ -48,6 +48,36 @@ const shuffle = (arr) => {
   return a;
 };
 
+/* ---------------- روندهای بازار ---------------- */
+const TREND_DRIFT = 0.01;   // دارایی‌های روند صعودی/نزولی هر حقوق ±۱٪ جابه‌جا می‌شوند
+
+function defaultTrends() {
+  const t = {};
+  DEAL_CATS.forEach(dc => { t[dc.cat] = 'flat'; });
+  return t;
+}
+
+function trendOf(a) { return a.trend || 'flat'; }
+
+function trendBadge(dir) {
+  const d = dir || 'flat';
+  const label = d === 'up' ? 'روند صعودی' : d === 'down' ? 'روند نزولی' : 'پایدار';
+  return `<span class="trend-badge trend-${d}">${label}</span>`;
+}
+
+function trendName(dir) {
+  return dir === 'up' ? 'صعودی' : dir === 'down' ? 'نزولی' : 'پایدار';
+}
+
+function careerPath(p) {
+  return CAREER_PATHS.find(pp => pp.id === (p.pathId || 'balanced')) || CAREER_PATHS[0];
+}
+
+/* ارزش تقریبی ماهانهٔ یک اثر سبک زندگی، برای انتخاب هوش مصنوعی. */
+function lifestyleValue(eff) {
+  return (eff.cash || 0) + (eff.monthly || 0) * 12 - (eff.expense || 0) * 12 + (eff.salary || 0) * 12;
+}
+
 let game = null;
 let resolver = null; // حل‌کنندهٔ پرامیسی مودال
 
@@ -153,6 +183,9 @@ function buildSetupRows(n) {
       <select class="prow-job" data-p="job">
         ${JOBS.map(j => `<option value="${j.id}">${j.name}</option>`).join('')}
       </select>
+      <select class="prow-path" data-p="path" title="مسیر شغلی: حقوق و هزینه‌های زندگی شروع تو را تعیین می‌کند">
+        ${CAREER_PATHS.map(pp => `<option value="${pp.id}">${pp.name}</option>`).join('')}
+      </select>
       <label class="prow-ai"><input type="checkbox" data-p="ai" ${i > 0 ? 'checked' : ''}> هوش مصنوعی</label>
       <span class="color-row">${PLAYER_COLORS.map(c =>
         `<button class="swatch ${c === PLAYER_COLORS[i] ? 'active' : ''}" data-color="${c}" style="background:${c}"></button>`).join('')}</span>
@@ -168,21 +201,22 @@ function buildSetupRows(n) {
       });
     });
   });
-  // راهنمای سختی شغل
-  wrap.querySelectorAll('.prow-job').forEach((sel) => sel.addEventListener('change', () => updateJobHint()));
+  // راهنمای سختی شغل و مسیر
+  wrap.querySelectorAll('.prow-job, .prow-path').forEach((sel) => sel.addEventListener('change', () => updateJobHint()));
   updateJobHint();
 }
 
 function updateJobHint() {
   document.querySelectorAll('.prow').forEach((row) => {
     const job = JOBS.find(j => j.id === row.querySelector('.prow-job').value);
+    const path = CAREER_PATHS.find(pp => pp.id === (row.querySelector('.prow-path') || {}).value) || CAREER_PATHS[0];
     const hint = row.querySelector('.job-hint') || (() => {
       const h = document.createElement('span');
       h.className = 'job-hint';
       row.appendChild(h);
       return h;
     })();
-    hint.textContent = `حقوق ${fmt(job.salary)}/ماه · هزینه ${fmt(job.expenses)}/ماه · شروع ${fmt(job.cash)}`;
+    hint.textContent = `حقوق ${fmt(job.salary * path.salaryMult)}/ماه · هزینه ${fmt(job.expenses * path.expenseMult)}/ماه · شروع ${fmt(job.cash)} · ${path.name}: ${path.desc}`;
   });
 }
 
@@ -195,11 +229,13 @@ function startGame() {
     if (seen.has(name)) name = name + ' ' + (i + 1).toLocaleString('fa-IR');
     seen.add(name);
     const job = JOBS.find(j => j.id === row.querySelector('.prow-job').value);
+    const pathId = (row.querySelector('.prow-path') || {}).value || 'balanced';
     const color = row.querySelector('.swatch.active').dataset.color;
     const isAI = row.querySelector('.prow-ai input').checked;
     players.push({
       name, color, jobId: job.id, ai: isAI,
       isHuman: !isAI,
+      pathId,
     });
   });
   if (players.length < 1) players.length = 1;
@@ -212,20 +248,24 @@ function startGame() {
 function beginGame(players, difficulty, daily, mode) {
   const p = players.map((cfg, i) => {
     const job = JOBS.find(j => j.id === cfg.jobId);
+    const path = careerPath(cfg);
+    const salary = Math.round(job.salary * path.salaryMult);
+    const expenses = Math.round(job.expenses * path.expenseMult);
     return {
       name: cfg.name,
       color: cfg.color,
       ai: cfg.ai,
       isHuman: !cfg.ai,
       job: job,
+      pathId: path.id,
       cash: job.cash,
-      salary: job.salary,
-      baseSalary: job.salary,
+      salary: salary,
+      baseSalary: salary,
       careerTier: 0,
       passiveIncome: 0,
-      expenses: job.expenses,
-      baseExpenses: job.expenses,
-      expenseItems: [{ name: LIVING_EXPENSE_NAME, monthly: job.expenses }],
+      expenses: expenses,
+      baseExpenses: expenses,
+      expenseItems: [{ name: LIVING_EXPENSE_NAME, monthly: expenses }],
       assets: [],
       loans: [],
       history: [],
@@ -262,18 +302,21 @@ function beginGame(players, difficulty, daily, mode) {
     winner: null,
     mode: mode || 'race',
     maxTurns: 40,
+    trends: defaultTrends(),
     decks: {
       oppByCat: {
         realestate: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'realestate')),
         business: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'business')),
         stock: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'stock')),
         savings: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'savings')),
+        venture: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'venture')),
       },
       market: shuffle(MARKET_CARDS),
       event: shuffle(EVENT_CARDS),
       expense: shuffle(EXPENSE_CARDS),
       bonus: shuffle(BONUS_CARDS),
       baby: shuffle(BABY_CARDS),
+      lifestyle: shuffle(LIFESTYLE_CARDS),
     },
     event: null,
     log: [],
@@ -320,6 +363,7 @@ function saveGame() {
       v: 1,
       players: game.players.map(p => ({
         name: p.name, color: p.color, ai: p.ai, isHuman: p.isHuman, jobId: p.job.id,
+        pathId: p.pathId || 'balanced',
         cash: p.cash, salary: p.salary, baseSalary: p.baseSalary, careerTier: p.careerTier,
         passiveIncome: p.passiveIncome,
         expenses: p.expenses, baseExpenses: p.baseExpenses,
@@ -345,6 +389,7 @@ function saveGame() {
       seed: game.seed,
       mode: game.mode,
       maxTurns: game.maxTurns,
+      trends: game.trends || defaultTrends(),
       decks: {
         oppByCat: Object.fromEntries(Object.entries(decks.oppByCat).map(([k, v]) => [k, v.map(c => OPPORTUNITY_CARDS.indexOf(c))])),
         market: decks.market.map(c => MARKET_CARDS.indexOf(c)),
@@ -352,6 +397,7 @@ function saveGame() {
         expense: decks.expense.map(c => EXPENSE_CARDS.indexOf(c)),
         bonus: decks.bonus.map(c => BONUS_CARDS.indexOf(c)),
         baby: decks.baby.map(c => BABY_CARDS.indexOf(c)),
+        lifestyle: (decks.lifestyle || []).map(c => LIFESTYLE_CARDS.indexOf(c)),
       },
       event: game.event || null,
       log: game.log.slice(-60),
@@ -379,6 +425,7 @@ function resumeGame() {
     const job = JOBS.find(j => j.id === cfg.jobId) || JOBS[0];
     return {
       name: cfg.name, color: cfg.color, ai: cfg.ai, isHuman: cfg.isHuman, job,
+      pathId: cfg.pathId || 'balanced',
       cash: cfg.cash, salary: cfg.salary, baseSalary: cfg.baseSalary || job.salary,
       careerTier: cfg.careerTier || 0,
       passiveIncome: cfg.passiveIncome,
@@ -410,18 +457,23 @@ function resumeGame() {
     winner: null,
     mode: s.mode || 'race',
     maxTurns: s.maxTurns || 40,
+    trends: s.trends || defaultTrends(),
     decks: {
       oppByCat: {
         realestate: s.decks.oppByCat.realestate.map(i => cardAt(OPPORTUNITY_CARDS, i)).filter(Boolean),
         business: s.decks.oppByCat.business.map(i => cardAt(OPPORTUNITY_CARDS, i)).filter(Boolean),
         stock: s.decks.oppByCat.stock.map(i => cardAt(OPPORTUNITY_CARDS, i)).filter(Boolean),
         savings: s.decks.oppByCat.savings.map(i => cardAt(OPPORTUNITY_CARDS, i)).filter(Boolean),
+        venture: s.decks.oppByCat.venture && s.decks.oppByCat.venture.length
+          ? s.decks.oppByCat.venture.map(i => cardAt(OPPORTUNITY_CARDS, i)).filter(Boolean)
+          : shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'venture')),
       },
       market: s.decks.market.map(i => cardAt(MARKET_CARDS, i)).filter(Boolean),
       event: (s.decks.event || []).length ? s.decks.event.map(i => cardAt(EVENT_CARDS, i)).filter(Boolean) : shuffle(EVENT_CARDS),
       expense: s.decks.expense.map(i => cardAt(EXPENSE_CARDS, i)).filter(Boolean),
       bonus: s.decks.bonus.map(i => cardAt(BONUS_CARDS, i)).filter(Boolean),
       baby: s.decks.baby.map(i => cardAt(BABY_CARDS, i)).filter(Boolean),
+      lifestyle: (s.decks.lifestyle || []).length ? s.decks.lifestyle.map(i => cardAt(LIFESTYLE_CARDS, i)).filter(Boolean) : shuffle(LIFESTYLE_CARDS),
     },
     event: s.event || null,
     log: [],
@@ -598,6 +650,31 @@ function checkModeWin() {
   return null;
 }
 
+/* استارتاپ‌ها برای `buildTurns` حقوق می‌سازند، بعد به درآمد غیرفعال راه می‌افتند —
+   یا شکست می‌خورند و فقط بخشی از ارزششان برگردانده می‌شود. یادداشت‌ها را برای
+   مودال/گزارش حقوق برمی‌گرداند. */
+function resolveBuilds(p) {
+  const notes = [];
+  const builds = (p.assets || []).filter(a => a.building);
+  builds.forEach(b => {
+    b.buildLeft = (b.buildLeft || 1) - 1;
+    if (b.buildLeft > 0) {
+      notes.push(`${b.name}: در حال ساخت (${b.buildLeft} حقوق مانده)`);
+    } else if (_rng() < (b.failChance || 0.3)) {
+      const salvage = Math.round(b.value * 0.3);
+      p.cash += salvage;
+      p.assets = p.assets.filter(a => a !== b);
+      notes.push(`${b.name} شکست خورد — بازیافت ${fmt(salvage)}`);
+    } else {
+      b.building = false;
+      b.monthly = b.plannedMonthly;
+      p.passiveIncome += b.plannedMonthly;
+      notes.push(`${b.name} راه افتاد! +${fmt(b.plannedMonthly)}/ماه درآمد غیرفعال`);
+    }
+  });
+  return notes;
+}
+
 async function onPayday(p) {
   if (p.downsized > 0) {
     p.downsized--;
@@ -609,6 +686,8 @@ async function onPayday(p) {
     if (p.isHuman) await showInfo('حقوق — نصف حقوق', msg, ['باشه']);
     else log(msg);
   }
+  // استارتاپ‌ها اینجا پیشرفت می‌کنند: می‌سازند، بعد راه می‌افتند یا شکست می‌خورند
+  const buildNotes = resolveBuilds(p);
   let salary = p.salary;
   let passive = p.passiveIncome;
   if (game.event && game.event.passiveMult) {
@@ -619,6 +698,13 @@ async function onPayday(p) {
   p.cash += net;
   p.totalPassiveEarned += passive;
   sfx.coin();
+
+  // مومنتوم بازار: دارایی‌های روند صعودی/نزولی هر حقوق کمی جابه‌جا می‌شوند
+  const driftNotes = [];
+  p.assets.forEach(a => {
+    if (trendOf(a) === 'up') { a.value = Math.round(a.value * (1 + TREND_DRIFT)); driftNotes.push(`${a.name} +1٪`); }
+    else if (trendOf(a) === 'down') { a.value = Math.round(a.value * (1 - TREND_DRIFT)); driftNotes.push(`${a.name} -1٪`); }
+  });
 
   // صندوق اضطراری هر بار حقوق ۱٪ سود می‌گیرد
   const fundInterest = Math.round((p.emergencyFund || 0) * 0.01);
@@ -663,6 +749,8 @@ async function onPayday(p) {
     (livingRaise > 0 ? `<div class="st red">گرانی زندگی +${fmt(livingRaise)}/ماه</div>` : '') +
     (fundInterest > 0 ? `<div class="st green">سود صندوق اضطراری +${fmt(fundInterest)}</div>` : '') +
     (peerCollected > 0 ? `<div class="st green">سود وام بین بازیکن‌ها +${fmt(peerCollected)}</div>` : '') +
+    (buildNotes.length ? buildNotes.map(n => `<div class="st">استارتاپ: ${n}</div>`).join('') : '') +
+    (driftNotes.length ? `<div class="st">مومنتوم بازار: ${driftNotes.join('، ')}</div>` : '') +
     `<div class="st"><b>نقدینگی فعلی: ${fmt(p.cash)}</b></div>` +
     `<div class="tip">${escaped ? 'درآمد غیرفعال از هزینه‌ها بیشتر شد — انجامش دادی!' : 'حقوقت را بگیر، قبض‌هایت را بپرداز و درآمد غیرفعالت را جیب بزن. هر حقوق یک درس جریان نقدی است.'}</div>`;
 
@@ -670,7 +758,7 @@ async function onPayday(p) {
     const title = escaped ? 'حقوق — از دایره فقر فرار کردی!' : 'حقوق';
     await showInfo(title, html, ['باشه']);
   } else {
-    log(`${p.name} حقوق گرفت: نقدینگی ${fmt(p.cash)}.${livingRaise > 0 ? ` گرانی زندگی ${fmt(livingRaise)}/ماه.` : ''}`);
+    log(`${p.name} حقوق گرفت: نقدینگی ${fmt(p.cash)}.${livingRaise > 0 ? ` گرانی زندگی ${fmt(livingRaise)}/ماه.` : ''}${buildNotes.length ? ` ${buildNotes.join('؛ ')}.` : ''}`);
   }
 
   if (escaped && (game.mode === 'race' || !game.mode)) await endGame(p);
@@ -1042,7 +1130,8 @@ function drawCat(cat) {
 
 function paybackMonths(card) {
   const cost = card.cost != null ? card.cost : (card.value || 0);
-  return card.monthly > 0 ? Math.ceil(cost / card.monthly) : 0;
+  const income = card.building ? (card.plannedMonthly || 0) : (card.monthly || 0);
+  return income > 0 ? Math.ceil(cost / income) : 0;
 }
 
 function paybackRating(card) {
@@ -1071,6 +1160,30 @@ function sellAsset(p, a) {
 }
 
 async function onOpportunity(p) {
+  // بعضی خانه‌های معامله به‌جای بازار، یک معضل واقعی سبک زندگی نشان می‌دهند
+  if (rand(4) === 0) {
+    const deck = game.decks.lifestyle;
+    const card = deck.length ? deck.shift() : (deck.push(...shuffle(LIFESTYLE_CARDS)), deck.shift());
+    const html = `
+      <div class="card-title">${card.title}</div>
+      <div class="card-desc">${card.desc}</div>
+      <div class="tip"><b>درس:</b> ${card.a.lesson}<br><b>یا:</b> ${card.b.lesson}</div>`;
+    if (p.isHuman) {
+      const choice = await ask('انتخاب سبک زندگی', html, [
+        { v: 'a', label: card.a.label, cls: 'ok' },
+        { v: 'b', label: card.b.label, cls: 'cancel' }]);
+      await applyLifestyle(p, card, choice);
+      log(`${p.name} انتخاب کرد: ${choice === 'a' ? card.a.label : card.b.label}.`);
+    } else {
+      const choice = aiLifestyleChoice(card);
+      await applyLifestyle(p, card, choice);
+      log(`${p.name} یک انتخاب سبک زندگی کرد: ${choice === 'a' ? card.a.label : card.b.label}.`);
+    }
+    renderAll();
+    saveGame();
+    return;
+  }
+
   // بازار امروز: از هر دسته یک پیشنهاد
   const offers = DEAL_CATS.map(dc => ({ dc, card: drawCat(dc.cat) }));
 
@@ -1084,7 +1197,8 @@ async function onOpportunity(p) {
         <div class="deal-info">
           <b>${card.title}</b>
           ${paybackBadge(card)}
-          <span class="deal-sub">${o.dc.label} · هزینه ${fmt(card.cost)} · +${fmt(card.monthly)}/ماه · بازگشت ${paybackMonths(card).toLocaleString('fa-IR')} ماه</span>
+          ${trendBadge((game.trends || {})[o.dc.cat])}
+          <span class="deal-sub">${o.dc.label} · هزینه ${fmt(card.cost)} · +${fmt(card.monthly)}/ماه · بازگشت ${paybackMonths(card).toLocaleString('fa-IR')} ماه${card.buildTurns ? ` · در ${card.buildTurns} حقوق ساخته می‌شود (ممکن است شکست بخورد)` : ''}</span>
         </div>
         <button class="btn small ok" data-buy="${i}" ${affordable ? '' : 'disabled'}>خرید</button>
       </div>`;
@@ -1138,6 +1252,24 @@ async function onOpportunity(p) {
   }
 }
 
+/* اثر یک انتخاب سبک زندگی را اعمال می‌کند: پول نقد، درآمد غیرفعال، هزینه ماهانه،
+   افزایش حقوق یا واریز به صندوق اضطراری. */
+async function applyLifestyle(p, card, choice) {
+  const eff = ((card[choice]) || card.a).effect || {};
+  if (eff.cash) p.cash += eff.cash;
+  if (eff.monthly) p.passiveIncome += eff.monthly;
+  if (eff.expense) addMonthlyExpense(p, eff.expense, card.title);
+  if (eff.salary) { p.salary += eff.salary; p.baseSalary += eff.salary; }
+  if (eff.emergency) p.emergencyFund = (p.emergencyFund || 0) + eff.emergency;
+  if (p.cash < 0) await handleDebt(p);
+}
+
+/* هوش مصنوعی یک طرف را انتخاب می‌کند: آسان‌ها شیر یا خط، عاقل‌ها ارزش را می‌سنجند. */
+function aiLifestyleChoice(card) {
+  if (aiDifficultyLevel() === 'easy') return rand(2) === 0 ? 'a' : 'b';
+  return lifestyleValue(card.a.effect || {}) >= lifestyleValue(card.b.effect || {}) ? 'a' : 'b';
+}
+
 /* ---------------- سختی هوش مصنوعی ---------------- */
 function aiDifficultyLevel() {
   return (game && game.difficulty) || 'medium';
@@ -1160,6 +1292,12 @@ function aiSellThreshold() {
   }
 }
 
+/* دسته‌های روند صعودی جلوتر از مسطح‌اند و روندهای نزولی آخر می‌آیند. */
+function trendRank(cat) {
+  const t = (game.trends || {})[cat] || 'flat';
+  return t === 'up' ? 0 : t === 'flat' ? 1 : 2;
+}
+
 /* مشخص می‌کند هوش مصنوعی کدام معاملات را می‌خرد، بر اساس سختی. کارت‌های خریداری‌شده را برمی‌گرداند. */
 function aiPickDeals(p, offers) {
   const diff = aiDifficultyLevel();
@@ -1176,10 +1314,10 @@ function aiPickDeals(p, offers) {
   const reserve = Math.max(200, Math.min(2500, Math.round(p.expenses * 0.3)));
 
   if (diff === 'hard') {
-    // راهبردی: به دنبال بازگشت سرمایه کوتاه، خرید حداکثر دو معامله و استفاده از بدهی خوب.
+    // راهبردی: بازگشت سرمایه کوتاه، اولویت روند صعودی، حداکثر دو معامله و بدهی خوب.
     const ranked = offers
       .filter(o => o.card.monthly > 0 && paybackMonths(o.card) <= 60)
-      .sort((x, y) => paybackMonths(x.card) - paybackMonths(y.card) || y.card.monthly - x.card.monthly);
+      .sort((x, y) => trendRank(x.card.cat) - trendRank(y.card.cat) || paybackMonths(x.card) - paybackMonths(y.card) || y.card.monthly - x.card.monthly);
     for (let i = 0; i < ranked.length && picked.length < 2; i++) {
       const o = ranked[i];
       if (p.cash >= o.card.cost + reserve) {
@@ -1202,9 +1340,9 @@ function aiPickDeals(p, offers) {
     return picked;
   }
 
-  // متوسط — منطقی: ذخیره نگه می‌دارد و فقط بازگشت سرمایه سریع می‌خرد.
+  // متوسط — منطقی: ذخیره نگه می‌دارد، از روند نزولی پرهیز می‌کند و فقط بازگشت سرمایه سریع می‌خرد.
   const buyable = offers
-    .filter(o => o.card.monthly > 0 && p.cash >= o.card.cost + reserve && paybackMonths(o.card) <= 90)
+    .filter(o => o.card.monthly > 0 && trendRank(o.card.cat) !== 2 && p.cash >= o.card.cost + reserve && paybackMonths(o.card) <= 90)
     .sort((x, y) => paybackMonths(x.card) - paybackMonths(y.card) || y.card.monthly - x.card.monthly);
   if (buyable.length) {
     buyAsset(p, buyable[0].card);
@@ -1226,17 +1364,37 @@ function aiManagePortfolio(p) {
 
 function buyAsset(p, card) {
   p.cash -= card.cost;
-  p.passiveIncome += card.monthly;
   p.investmentsBought++;
-  p.assets.push({
-    name: card.title,
-    cat: card.cat,
-    value: card.value,
-    cost: card.cost,
-    monthly: card.monthly,
-  });
-  sfx.buy();
-  log(`${p.name} ${card.title} را خرید. درآمد غیرفعال حالا ${fmt(p.passiveIncome)}/ماه است.`);
+  const snapshotTrend = (game.trends || {})[card.cat] || 'flat';
+  if (card.buildTurns) {
+    // استارتاپ: چند حقوق می‌سازد تا درآمد بدهد — و ممکن است شکست بخورد.
+    p.assets.push({
+      name: card.title,
+      cat: card.cat,
+      value: card.value,
+      cost: card.cost,
+      monthly: 0,
+      trend: snapshotTrend,
+      building: true,
+      buildLeft: card.buildTurns,
+      plannedMonthly: card.monthly,
+      failChance: card.failChance || 0.3,
+    });
+    sfx.buy();
+    log(`${p.name} ${card.title} را تأمین مالی کرد — ساخت ${card.buildTurns} حقوقی (برنامه‌ریزی +${fmt(card.monthly)}/ماه).`);
+  } else {
+    p.passiveIncome += card.monthly;
+    p.assets.push({
+      name: card.title,
+      cat: card.cat,
+      value: card.value,
+      cost: card.cost,
+      monthly: card.monthly,
+      trend: snapshotTrend,
+    });
+    sfx.buy();
+    log(`${p.name} ${card.title} را خرید. درآمد غیرفعال حالا ${fmt(p.passiveIncome)}/ماه است.`);
+  }
   renderAll();
   saveGame();
 }
@@ -1252,6 +1410,12 @@ async function onMarket(p) {
   const deck = game.decks.market;
   const card = deck.length ? deck.shift() : (deck.push(...shuffle(MARKET_CARDS)), deck.shift());
   card.apply(p);
+  // خبر بازار روند دسته را برای ادامه بازی تعیین می‌کند
+  if (card.trend && game.trends) {
+    game.trends[card.trend.cat] = card.trend.dir;
+    const dirWord = card.trend.dir === 'up' ? 'در روند صعودی' : 'در روند نزولی';
+    log(`${card.trend.cat} حالا ${dirWord} است — ${card.trend.dir === 'up' ? 'دارایی‌ها هر حقوق کمی رشد می‌کنند' : 'ارزش‌ها هر حقوق کمی کم می‌شوند'}.`);
+  }
   const owns = p.assets.length > 0;
   const html = `
     <div class="card-title">${card.title}</div>
@@ -1479,13 +1643,14 @@ function promotePlayer(p) {
   if ((p.careerTier || 0) >= CAREER_TIERS.length - 1) return null;
   p.careerTier++;
   const tier = careerInfo(p);
+  const path = careerPath(p);
   const prevSalary = p.salary;
   const prevExp = p.expenses;
-  const newBase = Math.round(p.job.salary * tier.salaryMult);
+  const newBase = Math.round(p.job.salary * path.salaryMult * tier.salaryMult);
   p.baseSalary = newBase;
   if (p.downsized === 0) p.salary = newBase;
   const oldBaseExp = p.baseExpenses || p.job.expenses;
-  const newBaseExp = Math.round(p.job.expenses * tier.expenseMult);
+  const newBaseExp = Math.round(p.job.expenses * path.expenseMult * tier.expenseMult);
   const living = p.expenseItems.find(it => it.name === LIVING_EXPENSE_NAME);
   if (living && oldBaseExp > 0) {
     living.monthly = Math.max(0, Math.round(living.monthly * (newBaseExp / oldBaseExp)));
@@ -1754,9 +1919,13 @@ function openPortfolio() {
         const gl = a.cost != null ? a.value - a.cost : null;
         const glCls = gl > 0 ? 'gl-up' : (gl < 0 ? 'gl-down' : 'gl-flat');
         const glTxt = gl != null && gl !== 0 ? `${gl > 0 ? '+' : ''}${fmt(gl)}` : null;
+        const buildNote = a.building
+          ? `<span class="p2build">در حال ساخت (${a.buildLeft} حقوق مانده) → برنامه‌ریزی +${fmt(a.plannedMonthly)}/ماه</span>`
+          : '';
+        const income = a.building ? `برنامه‌ریزی +${fmt(a.plannedMonthly)}/ماه` : `+${fmt(a.monthly)}/ماه`;
         return `
       <div class="prow2">
-        <div class="p2name"><b>${a.name}</b>${paybackBadge(a)}<span>${a.cat} · +${fmt(a.monthly)}/ماه</span></div>
+        <div class="p2name"><b>${a.name}</b>${paybackBadge(a)}${trendBadge(a.trend)}<span>${a.cat} · ${income}</span>${buildNote}</div>
         <div class="p2val">${fmt(a.value)}${glTxt ? ` <span class="gl ${glCls}">${glTxt}</span>` : ''}</div>
         <button class="btn small sell" data-sell="${i}">بفروش</button>
       </div>`;
@@ -1832,7 +2001,7 @@ function openPortfolio() {
       <div><span>درآمد غیرفعال/ماه</span><b class="green">+${fmt(p.passiveIncome)}</b></div>
       <div><span>هزینه‌ها</span><b class="red">-${fmt(p.expenses)}</b></div>
       <div class="cf-row"><span>جریان نقدی ماهانه</span><b class="${cashflow >= 0 ? 'green' : 'red'}">${cashflow >= 0 ? '+' : ''}${fmt(cashflow)}</b></div>
-      <div><span>شغل</span><b>${careerInfo(p).name}</b></div>
+      <div><span>مسیر شغلی</span><b>${careerPath(p).name} — ${careerInfo(p).name}</b></div>
       <div><span>نقدینگی</span><b>${fmt(p.cash)}</b></div>
       <div><span>ارزش خالص</span><b>${fmt(netWorth(p))}</b></div>
       <div><span>وام‌ها</span><b>${fmt(p.loans.reduce((s, l) => s + l.principal, 0))}</b></div>
@@ -1844,6 +2013,9 @@ function openPortfolio() {
       <button class="btn small ok" data-act="deposit">واریز ۱۰۰ دلار</button>
       <button class="btn small" data-act="withdraw">برداشت ۱۰۰ دلار</button>
     </div>
+    <h3>روندهای بازار <span class="hint">اخبار خانه‌های بازار این‌ها را تعیین می‌کند · صعودی +۱٪/حقوق، نزولی -۱٪</span></h3>
+    <div class="trends-row">${DEAL_CATS.map(dc => `
+      <div class="trend-chip trend-${(game.trends || {})[dc.cat]}"><span>${dc.label}</span><b>${trendName((game.trends || {})[dc.cat])}</b></div>`).join('')}</div>
     <h3>درآمد <span class="hint">هر ماه چه مبلغی وارد می‌شود</span></h3>
     <div class="prow2">
       <div class="p2name"><b>حقوق</b><span>فعال</span></div>
@@ -1967,7 +2139,11 @@ function transferAsset(seller, buyer, asset, price) {
   seller.assets = seller.assets.filter(a => a !== asset);
   buyer.cash -= price;
   buyer.passiveIncome += asset.monthly;
-  buyer.assets.push({ name: asset.name, cat: asset.cat, value: asset.value, monthly: asset.monthly });
+  buyer.assets.push({
+    name: asset.name, cat: asset.cat, cost: asset.cost, value: asset.value, monthly: asset.monthly,
+    trend: asset.trend,
+    building: asset.building, buildLeft: asset.buildLeft, plannedMonthly: asset.plannedMonthly, failChance: asset.failChance,
+  });
   sfx.coin();
   log(`${buyer.name} ${asset.name} را از ${seller.name} به ${fmt(price)} خرید.`);
   saveGame();
@@ -2041,8 +2217,8 @@ function openTradeView() {
   const mine = p.assets.length
     ? p.assets.map(a => `
       <div class="prow2">
-        <div class="p2name"><b>${a.name}</b><span>+${fmt(a.monthly)}/ماه</span></div>
-        <div class="p2val">${fmt(a.value)}</div>
+        <div class="p2name"><b>${a.name}</b><span>${a.building ? `در حال ساخت (${a.buildLeft} حقوق) → برنامه‌ریزی +${fmt(a.plannedMonthly)}/ماه` : `+${fmt(a.monthly)}/ماه`}</span></div>
+        <div class="p2val">${fmt(a.value)}${trendBadge(a.trend)}</div>
         <button class="btn small ok" data-offer="${a.name}">پیشنهاد</button>
       </div>`).join('')
     : '<div class="empty">دارایی‌ای برای معامله نداری.</div>';
@@ -2076,7 +2252,7 @@ function openTradeView() {
     ${o.assets.length
       ? o.assets.map(a => `
         <div class="prow2">
-        <div class="p2name"><b>${a.name}</b><span>${a.cat} · +${fmt(a.monthly)}/ماه</span></div>
+        <div class="p2name"><b>${a.name}</b><span>${a.cat} · ${a.building ? `در حال ساخت (${a.buildLeft} حقوق)` : `+${fmt(a.monthly)}/ماه`}</span></div>
           <div class="p2val">${fmt(a.value)}</div>
           <button class="btn small ok" data-buy="${o.name}|${a.name}">خرید</button>
         </div>`).join('')

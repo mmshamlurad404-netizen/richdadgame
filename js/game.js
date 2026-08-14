@@ -48,6 +48,36 @@ const shuffle = (arr) => {
   return a;
 };
 
+/* ---------------- market trends ---------------- */
+const TREND_DRIFT = 0.01;   // up/down-trending assets drift ±1% per payday
+
+function defaultTrends() {
+  const t = {};
+  DEAL_CATS.forEach(dc => { t[dc.cat] = 'flat'; });
+  return t;
+}
+
+function trendOf(a) { return a.trend || 'flat'; }
+
+function trendBadge(dir) {
+  const d = dir || 'flat';
+  const label = d === 'up' ? 'Trending up' : d === 'down' ? 'Trending down' : 'Stable';
+  return `<span class="trend-badge trend-${d}">${label}</span>`;
+}
+
+function trendName(dir) {
+  return dir === 'up' ? 'Up' : dir === 'down' ? 'Down' : 'Stable';
+}
+
+function careerPath(p) {
+  return CAREER_PATHS.find(pp => pp.id === (p.pathId || 'balanced')) || CAREER_PATHS[0];
+}
+
+/* Rough monthly value of a lifestyle effect, used by AI choices. */
+function lifestyleValue(eff) {
+  return (eff.cash || 0) + (eff.monthly || 0) * 12 - (eff.expense || 0) * 12 + (eff.salary || 0) * 12;
+}
+
 let game = null;
 let resolver = null; // modal promise resolver
 
@@ -153,6 +183,9 @@ function buildSetupRows(n) {
       <select class="prow-job" data-p="job">
         ${JOBS.map(j => `<option value="${j.id}">${j.name}</option>`).join('')}
       </select>
+      <select class="prow-path" data-p="path" title="Career path: sets your starting salary and living expenses">
+        ${CAREER_PATHS.map(pp => `<option value="${pp.id}">${pp.name}</option>`).join('')}
+      </select>
       <label class="prow-ai"><input type="checkbox" data-p="ai" ${i > 0 ? 'checked' : ''}> AI</label>
       <span class="color-row">${PLAYER_COLORS.map(c =>
         `<button class="swatch ${c === PLAYER_COLORS[i] ? 'active' : ''}" data-color="${c}" style="background:${c}"></button>`).join('')}</span>
@@ -168,21 +201,22 @@ function buildSetupRows(n) {
       });
     });
   });
-  // wire job difficulty hint
-  wrap.querySelectorAll('.prow-job').forEach((sel) => sel.addEventListener('change', () => updateJobHint()));
+  // wire job + path difficulty hint
+  wrap.querySelectorAll('.prow-job, .prow-path').forEach((sel) => sel.addEventListener('change', () => updateJobHint()));
   updateJobHint();
 }
 
 function updateJobHint() {
   document.querySelectorAll('.prow').forEach((row) => {
     const job = JOBS.find(j => j.id === row.querySelector('.prow-job').value);
+    const path = CAREER_PATHS.find(pp => pp.id === (row.querySelector('.prow-path') || {}).value) || CAREER_PATHS[0];
     const hint = row.querySelector('.job-hint') || (() => {
       const h = document.createElement('span');
       h.className = 'job-hint';
       row.appendChild(h);
       return h;
     })();
-    hint.textContent = `Salary ${fmt(job.salary)}/mo · Expenses ${fmt(job.expenses)}/mo · Start ${fmt(job.cash)}`;
+    hint.textContent = `Salary ${fmt(job.salary * path.salaryMult)}/mo · Expenses ${fmt(job.expenses * path.expenseMult)}/mo · Start ${fmt(job.cash)} · ${path.name}: ${path.desc}`;
   });
 }
 
@@ -195,11 +229,13 @@ function startGame() {
     if (seen.has(name)) name = name + ' ' + (i + 1);
     seen.add(name);
     const job = JOBS.find(j => j.id === row.querySelector('.prow-job').value);
+    const pathId = (row.querySelector('.prow-path') || {}).value || 'balanced';
     const color = row.querySelector('.swatch.active').dataset.color;
     const isAI = row.querySelector('.prow-ai input').checked;
     players.push({
       name, color, jobId: job.id, ai: isAI,
       isHuman: !isAI,
+      pathId,
     });
   });
   if (players.length < 1) players.length = 1;
@@ -212,20 +248,24 @@ function startGame() {
 function beginGame(players, difficulty, daily, mode) {
   const p = players.map((cfg, i) => {
     const job = JOBS.find(j => j.id === cfg.jobId);
+    const path = careerPath(cfg);
+    const salary = Math.round(job.salary * path.salaryMult);
+    const expenses = Math.round(job.expenses * path.expenseMult);
     return {
       name: cfg.name,
       color: cfg.color,
       ai: cfg.ai,
       isHuman: !cfg.ai,
       job: job,
+      pathId: path.id,
       cash: job.cash,
-      salary: job.salary,
-      baseSalary: job.salary,
+      salary: salary,
+      baseSalary: salary,
       careerTier: 0,
       passiveIncome: 0,
-      expenses: job.expenses,
-      baseExpenses: job.expenses,
-      expenseItems: [{ name: LIVING_EXPENSE_NAME, monthly: job.expenses }],
+      expenses: expenses,
+      baseExpenses: expenses,
+      expenseItems: [{ name: LIVING_EXPENSE_NAME, monthly: expenses }],
       assets: [],
       loans: [],
       history: [],
@@ -262,18 +302,21 @@ function beginGame(players, difficulty, daily, mode) {
     winner: null,
     mode: mode || 'race',
     maxTurns: 40,
+    trends: defaultTrends(),
     decks: {
       oppByCat: {
         realestate: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'realestate')),
         business: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'business')),
         stock: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'stock')),
         savings: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'savings')),
+        venture: shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'venture')),
       },
       market: shuffle(MARKET_CARDS),
       event: shuffle(EVENT_CARDS),
       expense: shuffle(EXPENSE_CARDS),
       bonus: shuffle(BONUS_CARDS),
       baby: shuffle(BABY_CARDS),
+      lifestyle: shuffle(LIFESTYLE_CARDS),
     },
     event: null,
     log: [],
@@ -320,6 +363,7 @@ function saveGame() {
       v: 1,
       players: game.players.map(p => ({
         name: p.name, color: p.color, ai: p.ai, isHuman: p.isHuman, jobId: p.job.id,
+        pathId: p.pathId || 'balanced',
         cash: p.cash, salary: p.salary, baseSalary: p.baseSalary, careerTier: p.careerTier,
         passiveIncome: p.passiveIncome,
         expenses: p.expenses, baseExpenses: p.baseExpenses,
@@ -345,6 +389,7 @@ function saveGame() {
       seed: game.seed,
       mode: game.mode,
       maxTurns: game.maxTurns,
+      trends: game.trends || defaultTrends(),
       decks: {
         oppByCat: Object.fromEntries(Object.entries(decks.oppByCat).map(([k, v]) => [k, v.map(c => OPPORTUNITY_CARDS.indexOf(c))])),
         market: decks.market.map(c => MARKET_CARDS.indexOf(c)),
@@ -352,6 +397,7 @@ function saveGame() {
         expense: decks.expense.map(c => EXPENSE_CARDS.indexOf(c)),
         bonus: decks.bonus.map(c => BONUS_CARDS.indexOf(c)),
         baby: decks.baby.map(c => BABY_CARDS.indexOf(c)),
+        lifestyle: (decks.lifestyle || []).map(c => LIFESTYLE_CARDS.indexOf(c)),
       },
       event: game.event || null,
       log: game.log.slice(-60),
@@ -379,6 +425,7 @@ function resumeGame() {
     const job = JOBS.find(j => j.id === cfg.jobId) || JOBS[0];
     return {
       name: cfg.name, color: cfg.color, ai: cfg.ai, isHuman: cfg.isHuman, job,
+      pathId: cfg.pathId || 'balanced',
       cash: cfg.cash, salary: cfg.salary, baseSalary: cfg.baseSalary || job.salary,
       careerTier: cfg.careerTier || 0,
       passiveIncome: cfg.passiveIncome,
@@ -410,18 +457,23 @@ function resumeGame() {
     winner: null,
     mode: s.mode || 'race',
     maxTurns: s.maxTurns || 40,
+    trends: s.trends || defaultTrends(),
     decks: {
       oppByCat: {
         realestate: s.decks.oppByCat.realestate.map(i => cardAt(OPPORTUNITY_CARDS, i)).filter(Boolean),
         business: s.decks.oppByCat.business.map(i => cardAt(OPPORTUNITY_CARDS, i)).filter(Boolean),
         stock: s.decks.oppByCat.stock.map(i => cardAt(OPPORTUNITY_CARDS, i)).filter(Boolean),
         savings: s.decks.oppByCat.savings.map(i => cardAt(OPPORTUNITY_CARDS, i)).filter(Boolean),
+        venture: s.decks.oppByCat.venture && s.decks.oppByCat.venture.length
+          ? s.decks.oppByCat.venture.map(i => cardAt(OPPORTUNITY_CARDS, i)).filter(Boolean)
+          : shuffle(OPPORTUNITY_CARDS.filter(c => c.cat === 'venture')),
       },
       market: s.decks.market.map(i => cardAt(MARKET_CARDS, i)).filter(Boolean),
       event: (s.decks.event || []).length ? s.decks.event.map(i => cardAt(EVENT_CARDS, i)).filter(Boolean) : shuffle(EVENT_CARDS),
       expense: s.decks.expense.map(i => cardAt(EXPENSE_CARDS, i)).filter(Boolean),
       bonus: s.decks.bonus.map(i => cardAt(BONUS_CARDS, i)).filter(Boolean),
       baby: s.decks.baby.map(i => cardAt(BABY_CARDS, i)).filter(Boolean),
+      lifestyle: (s.decks.lifestyle || []).length ? s.decks.lifestyle.map(i => cardAt(LIFESTYLE_CARDS, i)).filter(Boolean) : shuffle(LIFESTYLE_CARDS),
     },
     event: s.event || null,
     log: [],
@@ -598,6 +650,31 @@ function checkModeWin() {
   return null;
 }
 
+/* Startup ventures build for `buildTurns` paydays, then launch into passive
+   income — or fail and salvage a fraction of their value. Returns notes for
+   the payday modal/log. */
+function resolveBuilds(p) {
+  const notes = [];
+  const builds = (p.assets || []).filter(a => a.building);
+  builds.forEach(b => {
+    b.buildLeft = (b.buildLeft || 1) - 1;
+    if (b.buildLeft > 0) {
+      notes.push(`${b.name}: building (${b.buildLeft} payday${b.buildLeft === 1 ? '' : 's'} left)`);
+    } else if (_rng() < (b.failChance || 0.3)) {
+      const salvage = Math.round(b.value * 0.3);
+      p.cash += salvage;
+      p.assets = p.assets.filter(a => a !== b);
+      notes.push(`${b.name} FAILED — salvage ${fmt(salvage)}`);
+    } else {
+      b.building = false;
+      b.monthly = b.plannedMonthly;
+      p.passiveIncome += b.plannedMonthly;
+      notes.push(`${b.name} launched! +${fmt(b.plannedMonthly)}/mo passive income`);
+    }
+  });
+  return notes;
+}
+
 async function onPayday(p) {
   if (p.downsized > 0) {
     p.downsized--;
@@ -609,6 +686,8 @@ async function onPayday(p) {
     if (p.isHuman) await showInfo('PAYDAY — Half Pay', msg, ['OK']);
     else log(msg);
   }
+  // startup ventures progress here: build, then launch or fail
+  const buildNotes = resolveBuilds(p);
   let salary = p.salary;
   let passive = p.passiveIncome;
   if (game.event && game.event.passiveMult) {
@@ -619,6 +698,13 @@ async function onPayday(p) {
   p.cash += net;
   p.totalPassiveEarned += passive;
   sfx.coin();
+
+  // market momentum: up/down-trending assets drift a little each payday
+  const driftNotes = [];
+  p.assets.forEach(a => {
+    if (trendOf(a) === 'up') { a.value = Math.round(a.value * (1 + TREND_DRIFT)); driftNotes.push(`${a.name} +1%`); }
+    else if (trendOf(a) === 'down') { a.value = Math.round(a.value * (1 - TREND_DRIFT)); driftNotes.push(`${a.name} -1%`); }
+  });
 
   // the emergency fund earns 1% interest per payday
   const fundInterest = Math.round((p.emergencyFund || 0) * 0.01);
@@ -663,6 +749,8 @@ async function onPayday(p) {
     (livingRaise > 0 ? `<div class="st red">Cost of living rose +${fmt(livingRaise)}/mo</div>` : '') +
     (fundInterest > 0 ? `<div class="st green">Emergency fund interest +${fmt(fundInterest)}</div>` : '') +
     (peerCollected > 0 ? `<div class="st green">Peer loan interest +${fmt(peerCollected)}</div>` : '') +
+    (buildNotes.length ? buildNotes.map(n => `<div class="st">Venture: ${n}</div>`).join('') : '') +
+    (driftNotes.length ? `<div class="st">Market momentum: ${driftNotes.join(', ')}</div>` : '') +
     `<div class="st"><b>Cash now: ${fmt(p.cash)}</b></div>` +
     `<div class="tip">${escaped ? 'Passive income beats expenses — you did it!' : 'Collect your salary, pay your bills, and pocket your passive income. Every payday is a lesson in cash flow.'}</div>`;
 
@@ -670,7 +758,7 @@ async function onPayday(p) {
     const title = escaped ? 'PAYDAY — ESCAPED THE RAT RACE!' : 'PAYDAY';
     await showInfo(title, html, ['OK']);
   } else {
-    log(`${p.name} gets paid: cash ${fmt(p.cash)}.${livingRaise > 0 ? ` Cost of living up ${fmt(livingRaise)}/mo.` : ''}`);
+    log(`${p.name} gets paid: cash ${fmt(p.cash)}.${livingRaise > 0 ? ` Cost of living up ${fmt(livingRaise)}/mo.` : ''}${buildNotes.length ? ` ${buildNotes.join('; ')}.` : ''}`);
   }
 
   if (escaped && (game.mode === 'race' || !game.mode)) await endGame(p);
@@ -1043,7 +1131,8 @@ function drawCat(cat) {
 
 function paybackMonths(card) {
   const cost = card.cost != null ? card.cost : (card.value || 0);
-  return card.monthly > 0 ? Math.ceil(cost / card.monthly) : 0;
+  const income = card.building ? (card.plannedMonthly || 0) : (card.monthly || 0);
+  return income > 0 ? Math.ceil(cost / income) : 0;
 }
 
 function paybackRating(card) {
@@ -1072,6 +1161,30 @@ function sellAsset(p, a) {
 }
 
 async function onOpportunity(p) {
+  // Some DEAL spaces present a real lifestyle dilemma instead of the market.
+  if (rand(4) === 0) {
+    const deck = game.decks.lifestyle;
+    const card = deck.length ? deck.shift() : (deck.push(...shuffle(LIFESTYLE_CARDS)), deck.shift());
+    const html = `
+      <div class="card-title">${card.title}</div>
+      <div class="card-desc">${card.desc}</div>
+      <div class="tip"><b>Lesson:</b> ${card.a.lesson}<br><b>Or:</b> ${card.b.lesson}</div>`;
+    if (p.isHuman) {
+      const choice = await ask('Lifestyle Choice', html, [
+        { v: 'a', label: card.a.label, cls: 'ok' },
+        { v: 'b', label: card.b.label, cls: 'cancel' }]);
+      await applyLifestyle(p, card, choice);
+      log(`${p.name} chooses: ${choice === 'a' ? card.a.label : card.b.label}.`);
+    } else {
+      const choice = aiLifestyleChoice(card);
+      await applyLifestyle(p, card, choice);
+      log(`${p.name} makes a lifestyle choice: ${choice === 'a' ? card.a.label : card.b.label}.`);
+    }
+    renderAll();
+    saveGame();
+    return;
+  }
+
   // draw today's market: one offer per category
   const offers = DEAL_CATS.map(dc => ({ dc, card: drawCat(dc.cat) }));
 
@@ -1085,7 +1198,8 @@ async function onOpportunity(p) {
         <div class="deal-info">
           <b>${card.title}</b>
           ${paybackBadge(card)}
-          <span class="deal-sub">${o.dc.label} · Cost ${fmt(card.cost)} · +${fmt(card.monthly)}/mo · Payback ${paybackMonths(card)} mo</span>
+          ${trendBadge((game.trends || {})[o.dc.cat])}
+          <span class="deal-sub">${o.dc.label} · Cost ${fmt(card.cost)} · +${fmt(card.monthly)}/mo · Payback ${paybackMonths(card)} mo${card.buildTurns ? ` · builds in ${card.buildTurns} paydays (may fail)` : ''}</span>
         </div>
         <button class="btn small ok" data-buy="${i}" ${affordable ? '' : 'disabled'}>Buy</button>
       </div>`;
@@ -1139,6 +1253,24 @@ async function onOpportunity(p) {
   }
 }
 
+/* Apply a lifestyle card choice: cash, passive income, a monthly expense, a
+   salary raise, or a deposit into the emergency fund. */
+async function applyLifestyle(p, card, choice) {
+  const eff = ((card[choice]) || card.a).effect || {};
+  if (eff.cash) p.cash += eff.cash;
+  if (eff.monthly) p.passiveIncome += eff.monthly;
+  if (eff.expense) addMonthlyExpense(p, eff.expense, card.title);
+  if (eff.salary) { p.salary += eff.salary; p.baseSalary += eff.salary; }
+  if (eff.emergency) p.emergencyFund = (p.emergencyFund || 0) + eff.emergency;
+  if (p.cash < 0) await handleDebt(p);
+}
+
+/* AI picks a lifestyle side: easy players flip a coin, sensible ones value it. */
+function aiLifestyleChoice(card) {
+  if (aiDifficultyLevel() === 'easy') return rand(2) === 0 ? 'a' : 'b';
+  return lifestyleValue(card.a.effect || {}) >= lifestyleValue(card.b.effect || {}) ? 'a' : 'b';
+}
+
 /* ---------------- AI difficulty ---------------- */
 function aiDifficultyLevel() {
   return (game && game.difficulty) || 'medium';
@@ -1161,6 +1293,12 @@ function aiSellThreshold() {
   }
 }
 
+/* Categories in an up-trend rank ahead of flat, and down-trends rank last. */
+function trendRank(cat) {
+  const t = (game.trends || {})[cat] || 'flat';
+  return t === 'up' ? 0 : t === 'flat' ? 1 : 2;
+}
+
 /* Decide which deals an AI buys, based on difficulty. Returns bought cards. */
 function aiPickDeals(p, offers) {
   const diff = aiDifficultyLevel();
@@ -1177,10 +1315,10 @@ function aiPickDeals(p, offers) {
   const reserve = Math.max(200, Math.min(2500, Math.round(p.expenses * 0.3)));
 
   if (diff === 'hard') {
-    // Strategic: hunts short paybacks, buys up to two deals, uses good debt.
+    // Strategic: hunts short paybacks, favours up-trends, buys up to two deals.
     const ranked = offers
       .filter(o => o.card.monthly > 0 && paybackMonths(o.card) <= 60)
-      .sort((x, y) => paybackMonths(x.card) - paybackMonths(y.card) || y.card.monthly - x.card.monthly);
+      .sort((x, y) => trendRank(x.card.cat) - trendRank(y.card.cat) || paybackMonths(x.card) - paybackMonths(y.card) || y.card.monthly - x.card.monthly);
     for (let i = 0; i < ranked.length && picked.length < 2; i++) {
       const o = ranked[i];
       if (p.cash >= o.card.cost + reserve) {
@@ -1203,9 +1341,9 @@ function aiPickDeals(p, offers) {
     return picked;
   }
 
-  // medium — sensible: keeps a reserve and only buys a fast payback.
+  // medium — sensible: keeps a reserve, avoids down-trends, only buys fast payback.
   const buyable = offers
-    .filter(o => o.card.monthly > 0 && p.cash >= o.card.cost + reserve && paybackMonths(o.card) <= 90)
+    .filter(o => o.card.monthly > 0 && trendRank(o.card.cat) !== 2 && p.cash >= o.card.cost + reserve && paybackMonths(o.card) <= 90)
     .sort((x, y) => paybackMonths(x.card) - paybackMonths(y.card) || y.card.monthly - x.card.monthly);
   if (buyable.length) {
     buyAsset(p, buyable[0].card);
@@ -1227,17 +1365,37 @@ function aiManagePortfolio(p) {
 
 function buyAsset(p, card) {
   p.cash -= card.cost;
-  p.passiveIncome += card.monthly;
   p.investmentsBought++;
-  p.assets.push({
-    name: card.title,
-    cat: card.cat,
-    cost: card.cost,
-    value: card.value,
-    monthly: card.monthly,
-  });
-  sfx.buy();
-  log(`${p.name} buys ${card.title}. Passive income now ${fmt(p.passiveIncome)}/mo.`);
+  const snapshotTrend = (game.trends || {})[card.cat] || 'flat';
+  if (card.buildTurns) {
+    // Startup venture: builds for several paydays before paying — and may fail.
+    p.assets.push({
+      name: card.title,
+      cat: card.cat,
+      cost: card.cost,
+      value: card.value,
+      monthly: 0,
+      trend: snapshotTrend,
+      building: true,
+      buildLeft: card.buildTurns,
+      plannedMonthly: card.monthly,
+      failChance: card.failChance || 0.3,
+    });
+    sfx.buy();
+    log(`${p.name} funds ${card.title} — a ${card.buildTurns}-payday build (planned +${fmt(card.monthly)}/mo).`);
+  } else {
+    p.passiveIncome += card.monthly;
+    p.assets.push({
+      name: card.title,
+      cat: card.cat,
+      cost: card.cost,
+      value: card.value,
+      monthly: card.monthly,
+      trend: snapshotTrend,
+    });
+    sfx.buy();
+    log(`${p.name} buys ${card.title}. Passive income now ${fmt(p.passiveIncome)}/mo.`);
+  }
   renderAll();
   saveGame();
 }
@@ -1253,6 +1411,12 @@ async function onMarket(p) {
   const deck = game.decks.market;
   const card = deck.length ? deck.shift() : (deck.push(...shuffle(MARKET_CARDS)), deck.shift());
   card.apply(p);
+  // market news sets the category trend for the rest of the game
+  if (card.trend && game.trends) {
+    game.trends[card.trend.cat] = card.trend.dir;
+    const dirWord = card.trend.dir === 'up' ? 'trending up' : 'trending down';
+    log(`${card.trend.cat} is now ${dirWord} — ${card.trend.dir === 'up' ? 'assets drift higher each payday' : 'values drift lower each payday'}.`);
+  }
   const owns = p.assets.length > 0;
   const html = `
     <div class="card-title">${card.title}</div>
@@ -1480,13 +1644,14 @@ function promotePlayer(p) {
   if ((p.careerTier || 0) >= CAREER_TIERS.length - 1) return null;
   p.careerTier++;
   const tier = careerInfo(p);
+  const path = careerPath(p);
   const prevSalary = p.salary;
   const prevExp = p.expenses;
-  const newBase = Math.round(p.job.salary * tier.salaryMult);
+  const newBase = Math.round(p.job.salary * path.salaryMult * tier.salaryMult);
   p.baseSalary = newBase;
   if (p.downsized === 0) p.salary = newBase;
   const oldBaseExp = p.baseExpenses || p.job.expenses;
-  const newBaseExp = Math.round(p.job.expenses * tier.expenseMult);
+  const newBaseExp = Math.round(p.job.expenses * path.expenseMult * tier.expenseMult);
   const living = p.expenseItems.find(it => it.name === LIVING_EXPENSE_NAME);
   if (living && oldBaseExp > 0) {
     living.monthly = Math.max(0, Math.round(living.monthly * (newBaseExp / oldBaseExp)));
@@ -1755,9 +1920,13 @@ function openPortfolio() {
         const gl = a.cost != null ? a.value - a.cost : null;
         const glCls = gl > 0 ? 'gl-up' : (gl < 0 ? 'gl-down' : 'gl-flat');
         const glTxt = gl != null && gl !== 0 ? `${gl > 0 ? '+' : ''}${fmt(gl)}` : null;
+        const buildNote = a.building
+          ? `<span class="p2build">Building (${a.buildLeft} payday${a.buildLeft === 1 ? '' : 's'} left) → planned +${fmt(a.plannedMonthly)}/mo</span>`
+          : '';
+        const income = a.building ? `planned +${fmt(a.plannedMonthly)}/mo` : `+${fmt(a.monthly)}/mo`;
         return `
       <div class="prow2">
-        <div class="p2name"><b>${a.name}</b>${paybackBadge(a)}<span>${a.cat} · +${fmt(a.monthly)}/mo</span></div>
+        <div class="p2name"><b>${a.name}</b>${paybackBadge(a)}${trendBadge(a.trend)}<span>${a.cat} · ${income}</span>${buildNote}</div>
         <div class="p2val">${fmt(a.value)}${glTxt ? ` <span class="gl ${glCls}">${glTxt}</span>` : ''}</div>
         <button class="btn small sell" data-sell="${i}">Sell</button>
       </div>`;
@@ -1833,7 +2002,7 @@ function openPortfolio() {
       <div><span>Passive/mo</span><b class="green">+${fmt(p.passiveIncome)}</b></div>
       <div><span>Expenses</span><b class="red">-${fmt(p.expenses)}</b></div>
       <div class="cf-row"><span>Monthly cash flow</span><b class="${cashflow >= 0 ? 'green' : 'red'}">${cashflow >= 0 ? '+' : ''}${fmt(cashflow)}</b></div>
-      <div><span>Career</span><b>${careerInfo(p).name}</b></div>
+      <div><span>Career path</span><b>${careerPath(p).name} — ${careerInfo(p).name}</b></div>
       <div><span>Cash</span><b>${fmt(p.cash)}</b></div>
       <div><span>Net worth</span><b>${fmt(netWorth(p))}</b></div>
       <div><span>Loans</span><b>${fmt(p.loans.reduce((s, l) => s + l.principal, 0))}</b></div>
@@ -1845,6 +2014,9 @@ function openPortfolio() {
       <button class="btn small ok" data-act="deposit">Deposit $100</button>
       <button class="btn small" data-act="withdraw">Withdraw $100</button>
     </div>
+    <h3>Market Trends <span class="hint">news on MARKET spaces drives these · up-trends drift +1%/payday, down-trends -1%</span></h3>
+    <div class="trends-row">${DEAL_CATS.map(dc => `
+      <div class="trend-chip trend-${(game.trends || {})[dc.cat]}"><span>${dc.label}</span><b>${trendName((game.trends || {})[dc.cat])}</b></div>`).join('')}</div>
     <h3>Income <span class="hint">what comes in each month</span></h3>
     <div class="prow2">
       <div class="p2name"><b>Salary</b><span>active</span></div>
@@ -1968,7 +2140,11 @@ function transferAsset(seller, buyer, asset, price) {
   seller.assets = seller.assets.filter(a => a !== asset);
   buyer.cash -= price;
   buyer.passiveIncome += asset.monthly;
-  buyer.assets.push({ name: asset.name, cat: asset.cat, value: asset.value, monthly: asset.monthly });
+  buyer.assets.push({
+    name: asset.name, cat: asset.cat, cost: asset.cost, value: asset.value, monthly: asset.monthly,
+    trend: asset.trend,
+    building: asset.building, buildLeft: asset.buildLeft, plannedMonthly: asset.plannedMonthly, failChance: asset.failChance,
+  });
   sfx.coin();
   log(`${buyer.name} buys ${asset.name} from ${seller.name} for ${fmt(price)}.`);
   saveGame();
@@ -2042,8 +2218,8 @@ function openTradeView() {
   const mine = p.assets.length
     ? p.assets.map(a => `
       <div class="prow2">
-        <div class="p2name"><b>${a.name}</b><span>+${fmt(a.monthly)}/mo</span></div>
-        <div class="p2val">${fmt(a.value)}</div>
+        <div class="p2name"><b>${a.name}</b><span>${a.building ? `building (${a.buildLeft} paydays) → planned +${fmt(a.plannedMonthly)}/mo` : `+${fmt(a.monthly)}/mo`}</span></div>
+        <div class="p2val">${fmt(a.value)}${trendBadge(a.trend)}</div>
         <button class="btn small ok" data-offer="${a.name}">Offer</button>
       </div>`).join('')
     : '<div class="empty">You own no assets to trade.</div>';
@@ -2077,7 +2253,7 @@ function openTradeView() {
     ${o.assets.length
       ? o.assets.map(a => `
         <div class="prow2">
-        <div class="p2name"><b>${a.name}</b><span>${a.cat} · +${fmt(a.monthly)}/mo</span></div>
+        <div class="p2name"><b>${a.name}</b><span>${a.cat} · ${a.building ? `building (${a.buildLeft} paydays)` : `+${fmt(a.monthly)}/mo`}</span></div>
           <div class="p2val">${fmt(a.value)}</div>
           <button class="btn small ok" data-buy="${o.name}|${a.name}">Buy</button>
         </div>`).join('')

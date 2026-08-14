@@ -516,6 +516,49 @@ main {
 .gl-up { color: #2ecc71; }
 .gl-down { color: #e74c3c; }
 .gl-flat { color: var(--muted); }
+
+/* market trends + startup build status */
+.trend-badge {
+  align-self: flex-start;
+  display: inline-block;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  margin: 2px 0 3px;
+}
+.trend-badge.trend-up { background: rgba(46, 204, 113, 0.2); color: #2ecc71; }
+.trend-badge.trend-down { background: rgba(231, 76, 60, 0.2); color: #e74c3c; }
+.trend-badge.trend-flat { background: rgba(128, 128, 128, 0.2); color: var(--muted); }
+.p2name .trend-badge { margin: 0 0 3px; }
+.trends-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 12px; }
+.trend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.22);
+}
+.trend-chip span { color: var(--muted); }
+.trend-chip b { font-size: 0.7rem; }
+.trend-chip.trend-up b { color: #2ecc71; }
+.trend-chip.trend-down b { color: #e74c3c; }
+.trend-chip.trend-flat b { color: var(--muted); }
+.p2build { font-size: 0.7rem; color: #f39c12; }
+.prow-path {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--ink);
+  padding: 8px 8px;
+  font-family: inherit;
+  min-width: 110px;
+}
+.prow-path option { background: var(--panel2); color: var(--ink); }
 .report-block {
   margin: 10px 0;
   border: 1px solid rgba(128, 128, 128, 0.25);

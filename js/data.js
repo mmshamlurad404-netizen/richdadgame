@@ -95,6 +95,7 @@ const DEAL_CATS = [
   { cat: 'business',   label: 'Business / Factory' },
   { cat: 'stock',      label: 'Company Shares' },
   { cat: 'savings',    label: 'Savings / Bonds' },
+  { cat: 'venture',    label: 'Startup Venture' },
 ];
 
 const OPPORTUNITY_CARDS = [
@@ -116,16 +117,74 @@ const OPPORTUNITY_CARDS = [
   { title: 'Food Truck',             cat: 'business', cost: 12000, monthly: 1700, value: 12000, desc: 'Start a taco food truck business.', lesson: 'Payback time: cost divided by monthly income.' },
   { title: 'Storage Units',          cat: 'business', cost: 20000, monthly: 2700, value: 20000, desc: 'Buy a row of self-storage units.', lesson: 'Bigger assets = bigger monthly cash flow.' },
   { title: 'Duplex',                 cat: 'realestate', cost: 30000,  monthly: 3200, value: 30000, desc: 'Buy a two-family home; rent both sides.', lesson: 'Passive income above expenses = freedom!' },
+  /* Startup ventures: high-reward assets with a multi-payday build phase that
+     can fail. `monthly` is the planned income once launched; `buildTurns` is
+     how many paydays until launch; `failChance` is the chance it flops. */
+  { title: 'Food Stall Venture',     cat: 'venture', cost: 1500,  monthly: 400,  value: 1500,  buildTurns: 2, failChance: 0.25, desc: 'Back a friend\'s food stall. Builds over 2 paydays, then pays — or flops.', lesson: 'Ventures build before they pay. Diversify so one flop cannot break you.' },
+  { title: 'App Startup',            cat: 'venture', cost: 3000,  monthly: 700,  value: 3000,  buildTurns: 3, failChance: 0.35, desc: 'Fund an app idea. It needs 3 paydays to launch — and startups can fail.', lesson: 'High risk, high reward. Only risk money you can afford to lose.' },
+  { title: 'CleanTech Startup',      cat: 'venture', cost: 6000,  monthly: 1200, value: 6000,  buildTurns: 4, failChance: 0.4,  desc: 'A risky green-tech pitch: a 4-payday build with a real chance of failure — but a big payout if it works.', lesson: 'Every successful startup had flops behind it. Spread your bets.' },
 ];
 
+// Each market card can also set a category trend: buying into an up-trend is
+// rewarded (assets drift up a little each payday) and down-trends bleed value.
 const MARKET_CARDS = [
-  { title: 'Stock Boom!', desc: 'All your stocks double in value.', apply: (p) => p.assets.forEach(a => { if (a.cat === 'stock') a.value *= 2; }) },
-  { title: 'Market Crash', desc: 'All your stocks lose half their value.', apply: (p) => p.assets.forEach(a => { if (a.cat === 'stock') a.value = Math.round(a.value / 2); }) },
-  { title: 'Rent Boom!', desc: 'All your real estate doubles in value.', apply: (p) => p.assets.forEach(a => { if (a.cat === 'realestate') a.value *= 2; }) },
-  { title: 'Recession', desc: 'Your real estate loses 30% of its value.', apply: (p) => p.assets.forEach(a => { if (a.cat === 'realestate') a.value = Math.round(a.value * 0.7); }) },
-  { title: 'Interest Rates Fall', desc: 'Your savings (bonds/CDs) gain 20% in value.', apply: (p) => p.assets.forEach(a => { if (a.cat === 'savings') a.value = Math.round(a.value * 1.2); }) },
-  { title: 'Business Buyout', desc: 'A big company wants your business for 2x value. You may sell it.', apply: (p) => p._buyoutOffer = true },
+  { title: 'Stock Boom!', desc: 'All your stocks double in value.', trend: { cat: 'stock', dir: 'up' }, apply: (p) => p.assets.forEach(a => { if (a.cat === 'stock') a.value *= 2; }) },
+  { title: 'Market Crash', desc: 'All your stocks lose half their value.', trend: { cat: 'stock', dir: 'down' }, apply: (p) => p.assets.forEach(a => { if (a.cat === 'stock') a.value = Math.round(a.value / 2); }) },
+  { title: 'Rent Boom!', desc: 'All your real estate doubles in value.', trend: { cat: 'realestate', dir: 'up' }, apply: (p) => p.assets.forEach(a => { if (a.cat === 'realestate') a.value *= 2; }) },
+  { title: 'Recession', desc: 'Your real estate loses 30% of its value.', trend: { cat: 'realestate', dir: 'down' }, apply: (p) => p.assets.forEach(a => { if (a.cat === 'realestate') a.value = Math.round(a.value * 0.7); }) },
+  { title: 'Interest Rates Fall', desc: 'Your savings (bonds/CDs) gain 20% in value.', trend: { cat: 'savings', dir: 'up' }, apply: (p) => p.assets.forEach(a => { if (a.cat === 'savings') a.value = Math.round(a.value * 1.2); }) },
+  { title: 'Business Buyout', desc: 'A big company wants your business for 2x value. You may sell it.', trend: { cat: 'business', dir: 'up' }, apply: (p) => p._buyoutOffer = true },
   { title: 'Inflation', desc: 'Prices rise! Your monthly expenses increase by $25.', apply: (p) => { addMonthlyExpense(p, 25, 'Inflation'); } },
+];
+
+// Career tracks chosen in setup: each applies salary and expense multipliers.
+// Hustlers earn more but their lifestyle costs more; frugal players keep a
+// wider gap between income and expenses.
+const CAREER_PATHS = [
+  { id: 'balanced', name: 'Balanced', salaryMult: 1.0, expenseMult: 1.0, desc: 'The standard climb: salary and lifestyle grow together.' },
+  { id: 'hustler', name: 'Hustler', salaryMult: 1.2, expenseMult: 1.15, desc: 'Take on extra shifts and hustle — you earn more, but your living costs rise too.' },
+  { id: 'frugal', name: 'Frugal', salaryMult: 0.85, expenseMult: 0.7, desc: 'A quieter job with a lower salary, but you keep far more of it to invest.' },
+];
+
+// Lifestyle dilemmas appear on some DEAL spaces: a real A/B choice about money.
+// Effects move cash, add passive income, add monthly expenses or adjust salary.
+const LIFESTYLE_CARDS = [
+  {
+    title: 'The Promotion Dinner',
+    desc: 'You get a raise at work. Your friends want to celebrate at an expensive restaurant.',
+    a: { label: 'Treat everyone ($120)', effect: { cash: -120 }, lesson: 'Celebrating is fine — one night out should not derail your plan.' },
+    b: { label: 'Keep it simple at home', effect: { cash: 0 }, lesson: 'A low-cost celebration, zero regret. Bank the raise.' },
+  },
+  {
+    title: 'A Side Hustle Offer',
+    desc: 'A neighbour offers you a small weekly gig that costs money to start: equipment up front, steady pay after.',
+    a: { label: 'Start it ($200, +$40/mo)', effect: { cash: -200, monthly: 40 }, lesson: 'Good debt or good spending? A small asset that pays monthly is a real asset.' },
+    b: { label: 'Decline politely', effect: { cash: 0 }, lesson: 'Saying no to a good deal is fine when the timing is wrong.' },
+  },
+  {
+    title: 'The Birthday Splurge',
+    desc: 'Your birthday is coming. A big party looks fun — but it is expensive.',
+    a: { label: 'Big party ($300)', effect: { cash: -300 }, lesson: 'Memory or money? Every dollar has an opportunity cost.' },
+    b: { label: 'Small family dinner ($80)', effect: { cash: -80 }, lesson: 'Celebrate within a budget — the joy is the people, not the price.' },
+  },
+  {
+    title: 'The Nice Apartment',
+    desc: 'A fancier apartment is available for rent. It is beautiful — and costs more every month.',
+    a: { label: 'Upgrade (+$120/mo)', effect: { expense: 120 }, lesson: 'Lifestyle creep is quiet: a bigger apartment eats your cash flow forever.' },
+    b: { label: 'Stay where you are', effect: { cash: 0 }, lesson: 'Every expense you skip is income you keep. Invest the difference.' },
+  },
+  {
+    title: 'The Confidence Talk',
+    desc: 'Your manager offers you more responsibility at work, with a raise attached.',
+    a: { label: 'Take it (+$150/mo salary)', effect: { salary: 150 }, lesson: 'A raise is earned income — keep your expenses flat and the gap grows.' },
+    b: { label: 'Keep the calm job', effect: { cash: 0 }, lesson: 'Choosing stability is valid — just keep building your asset column.' },
+  },
+  {
+    title: 'The Windfall Choice',
+    desc: 'An aunt gifts you $200. How do you use it?',
+    a: { label: 'Emergency fund (+$200)', effect: { emergency: 200 }, lesson: 'Pay yourself first: a cash cushion makes surprises boring.' },
+    b: { label: 'Invest later', effect: { cash: 200 }, lesson: 'Windfalls are rare — do not let them disappear into spending.' },
+  },
 ];
 
 /* Global events hit every player at once. Some have an ongoing effect that
@@ -203,6 +262,10 @@ const LESSONS = {
   insurance: 'Insurance costs a small monthly premium but caps your losses when a market drops. Paying a little protects a lot.',
   career: 'Promotions need more than time on the job — you must own assets that grow while you work. Your career and your portfolio rise together.',
   bankrupt: 'When bills exceed every resource, you are bankrupt. Fire-sale, restructure or retire — bankruptcy is expensive, so plan to avoid it.',
+  trends: 'Markets move in trends. After a boom a category trends up; after a crash it trends down. Up-trending assets drift higher each payday, down-trending ones bleed — so buy into up-trends and be careful in down-trends.',
+  venture: 'A startup venture is a high-reward asset with a build phase: it pays nothing while it builds, then launches — or fails. Only risk money you can afford to lose, and do not bet everything on one startup.',
+  careerpath: 'Your career path sets your starting income and lifestyle. Hustlers earn more but spend more; frugal players earn less but keep a wider gap to invest. The gap is what builds wealth.',
+  lifestyle: 'Real life is a series of choices: celebrate big or keep it simple, take the side hustle or pass, upgrade the apartment or stay. Every dollar you skip spending is a dollar that can earn.',
 };
 
 const MONEY_LESSONS = [
@@ -360,17 +423,27 @@ const MONEY_LESSONS = [
     example: 'A promotion adds $1,000/month. One worker keeps the old apartment and invests the raise, adding $12,000 a year to their wealth. Another signs a lease on a nicer place and a car payment that cost exactly $1,000 — richer on paper, poorer in reality.',
     game: 'Promotions raise your salary but also nudge your expenses up, and the cost of living drifts upward every few paydays. Beat the creep: grow your passive income faster than your living costs, or the Rat Race just gets more expensive.',
   },
+  {
+    title: 'Trends, Risk & Startups',
+    quote: 'Time in the market beats timing the market — but trends are real, and risk must be priced.',
+    meaning: 'Prices do not move randomly forever: after a boom a market trends up for a while, after a crash it trends down. Buying into strength and avoiding weakness is not timing the market, it is riding momentum. And risk cuts both ways: the highest-reward bets — like funding a new business — can also fail entirely, so you only risk money you can afford to lose and you spread your bets.',
+    example: 'An investor watches real estate rally and buys a rental while rents are climbing — the trend pushes its value up further each month. Meanwhile a friend puts their whole savings into one startup that never launches and loses most of it. The winner priced momentum; the loser priced nothing.',
+    game: 'MARKET news sets category trends: up-trending assets drift +1% each payday, down-trending ones -1%. DEAL spaces can also offer a startup venture that builds for a few paydays and then launches — or fails. Buy into up-trends, hedge down-trends, and never bet the whole board on one venture.',
+  },
 ];
 
 const HOW_TO_PLAY = [
   { h: 'Goal', t: 'Escape the Rat Race! Build monthly PASSIVE INCOME that is bigger than your monthly EXPENSES.' },
+  { h: 'Career Paths', t: 'In setup, each player picks a career path. Hustlers earn a higher salary but pay more living expenses; frugal players earn less but keep a wider gap to invest. Your path sets your starting salary and expenses — you can still climb the promotion ladder from there.' },
   { h: 'Roll & Move', t: 'On your turn, roll two dice and move around the board. Every space teaches a money skill.' },
-  { h: 'Payday', t: 'Landing on PAYDAY (green) pays your salary, subtracts expenses, and adds your passive income. Your emergency fund earns 1% interest and any peer-loan interest you are owed is collected here too.' },
-  { h: 'Deals', t: 'DEAL spaces (purple) open today\'s market: buy or sell a home, factory, company shares or savings. Each offer is rated by payback time — Great (12 mo), Good (24 mo), Fair (48 mo) or Slow — and the shorter the payback, the faster your money comes back.' },
-  { h: 'Markets', t: 'MARKET spaces (orange) change the value of what you own. Values rise and fall — that is normal. Your portfolio shows the gain or loss on every asset since you bought it.' },
+  { h: 'Payday', t: 'Landing on PAYDAY (green) pays your salary, subtracts expenses, and adds your passive income. Your emergency fund earns 1% interest and any peer-loan interest you are owed is collected here too. Startup ventures also progress here: they build, then launch or fail.' },
+  { h: 'Deals', t: 'DEAL spaces (purple) open today\'s market: buy or sell a home, factory, company shares, savings or a startup venture. Each offer is rated by payback time — Great (12 mo), Good (24 mo), Fair (48 mo) or Slow — and the shorter the payback, the faster your money comes back.' },
+  { h: 'Markets', t: 'MARKET spaces (orange) change the value of what you own. Values rise and fall — that is normal. Your portfolio shows the gain or loss on every asset since you bought it. Market news also sets category trends: up-trends drift your assets higher each payday, down-trends bleed value.' },
   { h: 'Surprises', t: 'Expenses, taxes, babies and job losses happen to everyone. An emergency fund protects you, and insurance caps your losses when a market drops.' },
   { h: 'Emergency Fund', t: 'Use the portfolio to deposit or withdraw from your emergency fund. Surprise costs draw from the fund first, it earns 1% interest on every payday, and the target is 3 months of expenses.' },
   { h: 'Insurance', t: 'In your portfolio, insure any asset category you own for 1% of its insured value per month. Insurance caps market-down losses at 60% of what you paid, so a crash hurts less.' },
+  { h: 'Startup Ventures', t: 'A STARTUP offer is a high-reward bet: you fund a project that builds for 2 to 4 paydays (paying nothing), then launches into passive income — or fails and salvages only a fraction. Buy them only with money you can afford to lose, and spread your bets.' },
+  { h: 'Lifestyle Choices', t: 'Some DEAL spaces present a real lifestyle dilemma instead of the market: celebrate big or keep it simple, take the side hustle or pass, upgrade the apartment or stay. There is usually no single right answer — the best choice protects your cash flow.' },
   { h: 'Taxes', t: 'The TAX space charges progressive income tax: 10% up to $800/mo, 15% to $2000/mo, 22% to $5000/mo, then 32%. Only the part above each threshold is taxed at the higher rate.' },
   { h: 'Charity', t: 'Giving on the GIVING space earns you a bonus roll next turn. Generosity pays back.' },
   { h: 'Promotions', t: 'PROMOTION spaces climb your career ladder: higher salary, a little more expense, and a cash bonus. You must own one asset per career tier to be promoted — skills are assets too, but so are real ones.' },
