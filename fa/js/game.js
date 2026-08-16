@@ -534,6 +534,15 @@ async function takeTurn() {
 
   if (game.winner) { renderAll(); return; }
 
+  // تاس جایزه یعنی این بازیکن دو بار پشت‌سرهم بازی می‌کند
+  if (p.doubleRoll) {
+    p.doubleRoll = false;
+    if (p.isHuman) await showInfo('پاداش کمک!', 'سخاوتت جواب داد — همین حالا دوباره تاس می‌ریزی!', ['باشه']);
+    else log(`${p.name} از تاس جایزه‌ی کمک استفاده می‌کند.`);
+    await roll(p);
+    if (game.winner) { renderAll(); return; }
+  }
+
   // بازیکن بعدی — از بازیکن‌های ورشکسته رد شو
   let guard = 0;
   const prevCurrent = game.current;
@@ -556,12 +565,6 @@ async function takeTurn() {
 
   const next = currentPlayer();
   log(`نوبت ${game.turn}: حرکت ${next.name} (${next.job.name}).`);
-
-  if (next.doubleRoll) {
-    next.doubleRoll = false;
-    if (next.isHuman) await showInfo('پاداش کمک!', 'سخاوتت جواب داد — این نوبت دو بار تاس می‌ریزی!', ['باشه']);
-    else log(`${next.name} از تاس جایزه‌ی کمک استفاده می‌کند.`);
-  }
 
   busy = false;
   saveGame();
@@ -1600,7 +1603,7 @@ async function onCharity(p) {
   p.doubleRoll = true;
   const html = `
     <div class="card-title">کمک به دیگران</div>
-    <div class="card-desc">تو <b>${fmt(give)}</b> (۱۰٪ از نقدینگی‌ات) برای کمک به دیگران می‌بخشی. نوبت بعد <b>تاس جایزه</b> می‌گیری.</div>
+    <div class="card-desc">تو <b>${fmt(give)}</b> (۱۰٪ از نقدینگی‌ات) برای کمک به دیگران می‌بخشی. <b>تاس جایزه</b> می‌گیری — همین حالا دوباره بازی می‌کنی!</div>
     <div class="tip"><b>درس:</b> سخاوت قدردانی را تقویت می‌کند و پول را در جریان نگه می‌دارد. خوبی که می‌کنی اغلب برمی‌گردد.</div>`;
   if (p.isHuman) await showInfo('کمک', html, ['باشه']);
   else log(`${p.name} ${fmt(give)} به خیریه کمک می‌کند.`);

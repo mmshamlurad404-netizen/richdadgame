@@ -240,5 +240,31 @@ check(evalIn(b2.window, `game.decks.lifestyle.length`) === evalIn(window, 'LIFES
 check(evalIn(b2.window, `game.decks.oppByCat.venture.length`) === evalIn(window, `OPPORTUNITY_CARDS.filter(c => c.cat === 'venture').length`), 'old saves backfill a fresh venture deck');
 check(evalIn(b2.window, 'game.players[0].pathId') === 'balanced', 'old saves backfill pathId to balanced');
 
-console.log(ok ? 'V9 DEPTH FEATURES OK' : 'V9 DEPTH FEATURES FAIL');
-process.exit(ok ? 0 : 1);
+/* ================= E: charity bonus rolls twice in a row ================= */
+(async () => {
+  const d = loadGame(htmlDir, jsDir);
+  d.document.getElementById('daily-challenge').checked = true;
+  d.window.startGame();
+  evalIn(d.window, `game.players.forEach(x => { x.isHuman = false; x.ai = true; });`);
+  // daily dice are deterministic: compute the roll the player will make
+  const firstSum = evalIn(d.window, `(() => {
+    const p = game.players[0];
+    const r = mulberry32(hashString(game.seed + ':' + game.turn + ':' + p.color));
+    return Math.floor(r() * 6) + 1 + Math.floor(r() * 6) + 1;
+  })()`);
+  const charityIdx = 27;
+  evalIn(d.window, `(() => {
+    const p = game.players[0];
+    p.cash = 10000;
+    p.position = (${charityIdx} - ${firstSum} + BOARD_SIZE) % BOARD_SIZE;
+  })()`);
+  await evalIn(d.window, 'takeTurn()');
+  // both rolls use the same daily seed, so the player lands charity + rollSum
+  const boardSize = evalIn(window, 'BOARD_SIZE');
+  const expected = (charityIdx + firstSum) % boardSize;
+  check(evalIn(d.window, 'game.players[0].position') === expected, 'a charity bonus rolls twice in a row (player moved again after GIVING)');
+  check(evalIn(d.window, 'game.players[0].doubleRoll') === false, 'the charity bonus roll is consumed');
+  check(evalIn(d.window, 'game.turn') >= 2, 'the turn advanced after the double roll');
+  console.log(ok ? 'V9 DEPTH FEATURES OK' : 'V9 DEPTH FEATURES FAIL');
+  process.exit(ok ? 0 : 1);
+})();

@@ -59,7 +59,7 @@ const SPACE_INFO = {
   bonus:      { label: 'WINDFALL',   color: '#3498db', icon: 'bonus',   tip: 'A lucky surprise! Windfalls are rare — do not count on luck.' },
   baby:       { label: 'BABY',       color: '#e84393', icon: 'baby',    tip: 'New family members are a joy — and a budget line item.' },
   downsized:  { label: 'JOB LOSS',   color: '#6c7a89', icon: 'job',     tip: 'Anyone can lose a job. This is why your emergency fund matters.' },
-  charity:    { label: 'GIVING',     color: '#1abc9c', icon: 'give',    tip: 'Giving 10% trains generosity. You earn a bonus roll next turn.' },
+  charity:    { label: 'GIVING',     color: '#1abc9c', icon: 'give',    tip: 'Giving 10% trains generosity. You earn a bonus roll — play again right away!' },
   career:     { label: 'PROMOTION',  color: '#795548', icon: 'career',  tip: 'Work to learn! A promotion raises your salary — and a little of your expenses too.' },
 };
 
@@ -337,7 +337,7 @@ const MONEY_LESSONS = [
     quote: '"The more you give, the more you receive." — rich dad',
     meaning: 'Rich dad taught that money follows abundance, not scarcity. Giving first trains you to see and create value for others, builds trust and relationships, and keeps money flowing through your life. Generosity is also a discipline: it proves money is a tool you control, not a master that controls you.',
     example: 'A business owner who donates 10% of profits and mentors young people finds that customers and partners trust them more. That trust turns into referrals, deals and growth — the giving pays back in unexpected ways.',
-    game: 'The GIVING space asks for 10% of your cash, and generosity literally pays back: you earn a bonus roll next turn. Both good karma and good strategy.',
+    game: 'The GIVING space asks for 10% of your cash, and generosity literally pays back: you earn a bonus roll and play again right away. Both good karma and good strategy.',
   },
   {
     title: 'How Cash Flow Works',
@@ -445,7 +445,7 @@ const HOW_TO_PLAY = [
   { h: 'Startup Ventures', t: 'A STARTUP offer is a high-reward bet: you fund a project that builds for 2 to 4 paydays (paying nothing), then launches into passive income — or fails and salvages only a fraction. Buy them only with money you can afford to lose, and spread your bets.' },
   { h: 'Lifestyle Choices', t: 'Some DEAL spaces present a real lifestyle dilemma instead of the market: celebrate big or keep it simple, take the side hustle or pass, upgrade the apartment or stay. There is usually no single right answer — the best choice protects your cash flow.' },
   { h: 'Taxes', t: 'The TAX space charges progressive income tax: 10% up to $800/mo, 15% to $2000/mo, 22% to $5000/mo, then 32%. Only the part above each threshold is taxed at the higher rate.' },
-  { h: 'Charity', t: 'Giving on the GIVING space earns you a bonus roll next turn. Generosity pays back.' },
+  { h: 'Charity', t: 'Giving on the GIVING space earns you a bonus roll — you play again right away. Generosity pays back.' },
   { h: 'Promotions', t: 'PROMOTION spaces climb your career ladder: higher salary, a little more expense, and a cash bonus. You must own one asset per career tier to be promoted — skills are assets too, but so are real ones.' },
   { h: 'Cost of Living', t: 'Every few paydays the cost of living rises about 5%. Your living expenses creep up over time, so keep your income growing faster than your bills.' },
   { h: 'Bankruptcy', t: 'If you cannot cover your bills, you must fire-sale assets, restructure your debt, or retire from the game. Avoid it with an emergency fund.' },

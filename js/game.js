@@ -534,6 +534,15 @@ async function takeTurn() {
 
   if (game.winner) { renderAll(); return; }
 
+  // a charity bonus lets this player play twice in a row
+  if (p.doubleRoll) {
+    p.doubleRoll = false;
+    if (p.isHuman) await showInfo('Charity Bonus!', 'Your generosity pays back — you roll again right away!', ['OK']);
+    else log(`${p.name} uses their charity bonus roll.`);
+    await roll(p);
+    if (game.winner) { renderAll(); return; }
+  }
+
   // next player — skip any player who went bankrupt
   let guard = 0;
   const prevCurrent = game.current;
@@ -556,12 +565,6 @@ async function takeTurn() {
 
   const next = currentPlayer();
   log(`Turn ${game.turn}: ${next.name}'s move (${next.job.name}).`);
-
-  if (next.doubleRoll) {
-    next.doubleRoll = false;
-    if (next.isHuman) await showInfo('Charity Bonus!', 'Your generosity pays back — you roll twice this turn!', ['OK']);
-    else log(`${next.name} uses their charity bonus roll.`);
-  }
 
   busy = false;
   saveGame();
@@ -1601,7 +1604,7 @@ async function onCharity(p) {
   p.doubleRoll = true;
   const html = `
     <div class="card-title">Giving</div>
-    <div class="card-desc">You donate <b>${fmt(give)}</b> (10% of your cash) to help others. You earn a <b>bonus roll</b> next turn.</div>
+    <div class="card-desc">You donate <b>${fmt(give)}</b> (10% of your cash) to help others. You earn a <b>bonus roll</b> — you play again right away!</div>
     <div class="tip"><b>Lesson:</b> Generosity trains gratitude and keeps money flowing. The good you do often returns.</div>`;
   if (p.isHuman) await showInfo('Charity', html, ['OK']);
   else log(`${p.name} donates ${fmt(give)} to charity.`);
