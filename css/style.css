@@ -54,14 +54,14 @@ body {
   min-height: 100vh;
 }
 
-/* Farsi build: genuine Persian typefaces — Vazirmatn webfont first, then
-   classic Nazanin / Lotus when installed on the user's machine. */
+/* Farsi build: classic Iranian typefaces first — Nazanin and Lotus are used
+   when installed locally, then the Vazirmatn webfont, then Tahoma. */
 html[lang="fa"] body,
 html[lang="fa"] input,
 html[lang="fa"] select,
 html[lang="fa"] textarea,
 html[lang="fa"] button {
-  font-family: "Vazirmatn", "Nazanin", "B Nazanin", "Lotus", "Tahoma", "Segoe UI", sans-serif;
+  font-family: "Nazanin", "B Nazanin", "Lotus", "Vazirmatn", "Tahoma", "Segoe UI", sans-serif;
 }
 
 /* ---------- header ---------- */
