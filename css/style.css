@@ -1,6 +1,32 @@
 /* ============================================================
    Money Quest — styles
    ============================================================ */
+
+/* Persian webfont (Vazirmatn, OFL) self-hosted for the Farsi build.
+   Classic Iranian system fonts (Nazanin, Lotus) are preferred on
+   machines that have them installed. */
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('../fonts/Vazirmatn-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('../fonts/Vazirmatn-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('../fonts/Vazirmatn-Black.woff2') format('woff2');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --bg: #0f1b2d;
   --panel: #16273f;
@@ -26,6 +52,16 @@ body {
     var(--bg);
   color: var(--ink);
   min-height: 100vh;
+}
+
+/* Farsi build: genuine Persian typefaces — Vazirmatn webfont first, then
+   classic Nazanin / Lotus when installed on the user's machine. */
+html[lang="fa"] body,
+html[lang="fa"] input,
+html[lang="fa"] select,
+html[lang="fa"] textarea,
+html[lang="fa"] button {
+  font-family: "Vazirmatn", "Nazanin", "B Nazanin", "Lotus", "Tahoma", "Segoe UI", sans-serif;
 }
 
 /* ---------- header ---------- */
